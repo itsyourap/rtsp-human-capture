@@ -3,7 +3,7 @@ name = "rtsp-human-capture"
 author = "itsyourap"
 url = "http://github.com/itsyourap/rtsp-human-capture"
 version = "0.0.1"
-description = "Add your description here"
+description = "Detect and capture people from RTSP camera streams using YOLOv4/YOLOv3 with GPU acceleration, multi-stream threading, and configurable snapshot/video recording"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
