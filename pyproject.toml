@@ -1,0 +1,9 @@
+[project]
+name = "rtsp-human-capture"
+author = "itsyourap"
+url = "http://github.com/itsyourap/rtsp-human-capture"
+version = "0.0.1"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
