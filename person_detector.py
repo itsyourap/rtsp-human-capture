@@ -61,14 +61,15 @@ class PersonDetector:
 
     # Try to use NVIDIA GPU via CUDA backend
     if self.net is not None:
-      try:
-        self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-        self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-        print("Using CUDA (GPU) backend for inference.")
-      except Exception:
-        print("CUDA backend not available, falling back to CPU.")
-        self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-        self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+      cuda_available = cv2.cuda.getCudaEnabledDeviceCount() > 0
+      if cuda_available:
+          print("CUDA available, using GPU for inference")
+          self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+          self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+      else:
+          print("CUDA not available, using CPU for inference")
+          self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+          self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
 
     # Load COCO class names
     try:
