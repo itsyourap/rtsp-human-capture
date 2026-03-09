@@ -217,9 +217,10 @@ class StreamProcessor:
         video_writer.release()
         print(f"[Stream {stream_id}] Saved in-progress clip: {clip_filename}")
       cap.release()
+      saved_noun = "snapshot(s)" if save_mode == "image" else "clip(s)"
       print(
         f"[Stream {stream_id}] Processed {frame_count} frames, "
-        f"recorded {person_entry_count} person clip(s)"
+        f"captured {person_entry_count} person {saved_noun}"
       )
 
   # ------------------------------------------------------------------
@@ -404,8 +405,9 @@ class StreamProcessor:
       cap.release()
       if display:
         cv2.destroyAllWindows()
+      saved_noun = "snapshot(s)" if save_mode == "image" else "clip(s)"
       print(
-        f"Processed {frame_count} frames, recorded {person_entry_count} person clip(s)")
+        f"Processed {frame_count} frames, captured {person_entry_count} person {saved_noun}")
 
   # ------------------------------------------------------------------
   # Private helpers
