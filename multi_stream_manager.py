@@ -28,9 +28,10 @@ class MultiStreamManager:
       )
   """
 
-  def __init__(self, detector: PersonDetector) -> None:
+  def __init__(self, detector: PersonDetector, output_dir: str = "person") -> None:
     self.detector = detector
-    self._processor = StreamProcessor(detector)
+    self.output_dir = output_dir
+    self._processor = StreamProcessor(detector, output_dir=output_dir)
 
   def process_multiple_streams(
     self,
@@ -48,8 +49,8 @@ class MultiStreamManager:
         display: Show a live grid window with all streams.
     """
     if save_mode is not None:
-      os.makedirs("person", exist_ok=True)
-      print("Created main directory: person")
+      os.makedirs(self.output_dir, exist_ok=True)
+      print(f"Created main directory: {self.output_dir}")
 
     # Build ordered (stream_id, url) list
     if isinstance(rtsp_urls, dict):

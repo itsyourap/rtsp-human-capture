@@ -8,18 +8,30 @@ class PersonDetector:
   """Loads a person-detection model (YOLOv4 / YOLOv3 / HOG fallback) and
   exposes a single thread-safe ``detect_persons`` method."""
 
-  def __init__(self, confidence_threshold: float = 0.5, person_area_threshold: int = 1000) -> None:
-    """Initialize person detector with specified confidence threshold."""
+  def __init__(
+    self,
+    confidence_threshold: float = 0.5,
+    person_area_threshold: int = 1000,
+    model_dir: str = "model",
+  ) -> None:
+    """Initialize person detector.
+
+    Args:
+        confidence_threshold: Minimum detection score (0–1).
+        person_area_threshold: Minimum bounding-box area in pixels.
+        model_dir: Directory that contains the YOLO weight/config files
+                   and ``coco.names``.
+    """
     print("Loading person detection model...")
 
-    # Load YOLOv4 or YOLOv3 model (using OpenCV DNN)
-    # You can download these files from:
+    # Download model files from:
     # https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.weights
     # https://github.com/AlexeyAB/darknet/blob/master/cfg/yolov4.cfg
     # https://github.com/AlexeyAB/darknet/blob/master/data/coco.names
 
     self.confidence_threshold: float = confidence_threshold
     self.person_area_threshold: int = person_area_threshold
+    self.model_dir: str = model_dir
     self.net: Optional[cv2.dnn.Net] = None
     self.hog: Optional[cv2.HOGDescriptor] = None
     self.classes: List[str] = []
@@ -29,11 +41,13 @@ class PersonDetector:
 
     # Try to load YOLO model files
     try:
-      self.net = cv2.dnn.readNet("model/yolov4.weights", "model/yolov4.cfg")
+      self.net = cv2.dnn.readNet(
+        f"{model_dir}/yolov4.weights", f"{model_dir}/yolov4.cfg")
       model_name = "YOLOv4"
     except:
       try:
-        self.net = cv2.dnn.readNet("model/yolov3.weights", "model/yolov3.cfg")
+        self.net = cv2.dnn.readNet(
+          f"{model_dir}/yolov3.weights", f"{model_dir}/yolov3.cfg")
         model_name = "YOLOv3"
       except:
         print("Warning: YOLO weights not found. Using OpenCV's built-in HOG person detector as fallback.")
@@ -58,7 +72,7 @@ class PersonDetector:
 
     # Load COCO class names
     try:
-      with open("model/coco.names", "r") as f:
+      with open(f"{model_dir}/coco.names", "r") as f:
         self.classes = [line.strip() for line in f.readlines()]
     except:
       # Default COCO classes if file not found

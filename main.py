@@ -4,6 +4,7 @@ import time
 
 import cv2
 
+from config import DEFAULT_CONFIG_PATH, load_config
 from multi_stream_manager import MultiStreamManager
 from person_detector import PersonDetector
 from stream_processor import StreamProcessor
@@ -45,7 +46,9 @@ def test_with_image(detector: PersonDetector, image_path: str) -> None:
 
 def main() -> None:
   parser = argparse.ArgumentParser(
-    description="Person Detection for RTSP Streams")
+    description="RTSP Human Capture - Supports multiple streams, configurable thresholds, and display options.")
+  parser.add_argument("--config", type=str, default=DEFAULT_CONFIG_PATH,
+                      help=f"Path to config file (default: {DEFAULT_CONFIG_PATH})")
   parser.add_argument("--rtsp", type=str, help="Single RTSP stream URL")
   parser.add_argument("--rtsp-list", nargs="+",
                       help="Multiple RTSP stream URLs")
@@ -53,12 +56,12 @@ def main() -> None:
                       help="File containing RTSP URLs (one per line)")
   parser.add_argument("--test-image", type=str,
                       help="Test with image file instead of RTSP")
-  parser.add_argument("--confidence", type=float, default=0.5,
-                      help="Confidence threshold (default: 0.5)")
-  parser.add_argument("--area-threshold", type=int, default=1000,
-                      help="Minimum person area in pixels (default: 1000)")
-  parser.add_argument("--frame-skip", type=int, default=15,
-                      help="Process every Nth frame (default: 15)")
+  parser.add_argument("--confidence", type=float, default=None,
+                      help="Confidence threshold — overrides config file value")
+  parser.add_argument("--area-threshold", type=int, default=None,
+                      help="Minimum person area in pixels — overrides config file value")
+  parser.add_argument("--frame-skip", type=int, default=None,
+                      help="Process every Nth frame — overrides config file value")
   parser.add_argument("--no-display", action="store_true",
                       help="Disable video display for single stream mode")
   parser.add_argument("--display", action="store_true",
@@ -73,9 +76,31 @@ def main() -> None:
 
   args = parser.parse_args()
 
+  # Load config file; CLI flags override individual values when provided
+  try:
+    cfg = load_config(args.config)
+  except FileNotFoundError as exc:
+    print(f"Error: {exc}")
+    raise SystemExit(1)
+  except ValueError as exc:
+    print(f"Config error: {exc}")
+    raise SystemExit(1)
+
+  if args.confidence is not None:
+    cfg.confidence_threshold = args.confidence
+  if args.area_threshold is not None:
+    cfg.person_area_threshold = args.area_threshold
+  if args.frame_skip is not None:
+    cfg.frame_skip = args.frame_skip
+
+  print(f"Config loaded from: {args.config}")
+  print(f"  model_dir   = {cfg.model_dir}")
+  print(f"  output_dir  = {cfg.output_dir}")
+
   detector = PersonDetector(
-    confidence_threshold=args.confidence,
-    person_area_threshold=args.area_threshold,
+    confidence_threshold=cfg.confidence_threshold,
+    person_area_threshold=cfg.person_area_threshold,
+    model_dir=cfg.model_dir,
   )
 
   if args.test_image:
@@ -83,10 +108,10 @@ def main() -> None:
 
   elif args.rtsp_list:
     print(f"Processing {len(args.rtsp_list)} RTSP streams...")
-    manager = MultiStreamManager(detector)
+    manager = MultiStreamManager(detector, output_dir=cfg.output_dir)
     manager.process_multiple_streams(
       rtsp_urls=args.rtsp_list,
-      frame_skip=args.frame_skip,
+      frame_skip=cfg.frame_skip,
       save_mode=args.save,
       display=args.display,
     )
@@ -97,10 +122,10 @@ def main() -> None:
         rtsp_urls = [line.strip() for line in f if line.strip()
                      and not line.startswith("#")]
       print(f"Loaded {len(rtsp_urls)} RTSP streams from {args.rtsp_file}")
-      manager = MultiStreamManager(detector)
+      manager = MultiStreamManager(detector, output_dir=cfg.output_dir)
       manager.process_multiple_streams(
         rtsp_urls=rtsp_urls,
-        frame_skip=args.frame_skip,
+        frame_skip=cfg.frame_skip,
         save_mode=args.save,
         display=args.display,
       )
@@ -110,10 +135,10 @@ def main() -> None:
       print(f"Error reading file {args.rtsp_file}: {e}")
 
   elif args.rtsp:
-    processor = StreamProcessor(detector)
+    processor = StreamProcessor(detector, output_dir=cfg.output_dir)
     processor.process_rtsp_stream(
       rtsp_url=args.rtsp,
-      frame_skip=args.frame_skip,
+      frame_skip=cfg.frame_skip,
       display=not args.no_display,
       save_mode=args.save,
     )

@@ -23,8 +23,9 @@ class StreamProcessor:
       thread.start()
   """
 
-  def __init__(self, detector: PersonDetector) -> None:
+  def __init__(self, detector: PersonDetector, output_dir: str = "person") -> None:
     self.detector = detector
+    self.output_dir = output_dir
 
   # ------------------------------------------------------------------
   # Multi-stream entry point (worker function, called from a thread)
@@ -52,7 +53,7 @@ class StreamProcessor:
     print(f"[Stream {stream_id}] Connecting to: {rtsp_url}")
 
     if save_mode is not None:
-      person_dir = f"person/stream_{stream_id}"
+      person_dir = f"{self.output_dir}/stream_{stream_id}"
       os.makedirs(person_dir, exist_ok=True)
       print(f"[Stream {stream_id}] Created directory: {person_dir}")
 
@@ -132,7 +133,7 @@ class StreamProcessor:
             )
 
             if save_mode is not None:
-              person_dir = f"person/stream_{stream_id}"
+              person_dir = f"{self.output_dir}/stream_{stream_id}"
               os.makedirs(person_dir, exist_ok=True)
               timestamp_str = time.strftime("%Y%m%d_%H%M%S")
 
@@ -243,8 +244,8 @@ class StreamProcessor:
     print(f"Connecting to RTSP stream: {rtsp_url}")
 
     if save_mode is not None:
-      os.makedirs("person", exist_ok=True)
-      print("Created directory: person")
+      os.makedirs(self.output_dir, exist_ok=True)
+      print(f"Created directory: {self.output_dir}")
 
     cap = cv2.VideoCapture(rtsp_url)
     if not cap.isOpened():
@@ -313,12 +314,12 @@ class StreamProcessor:
             print(f"  Person entered frame! Entry #{person_entry_count}")
 
             if save_mode is not None:
-              os.makedirs("person", exist_ok=True)
+              os.makedirs(self.output_dir, exist_ok=True)
               timestamp_str = time.strftime("%Y%m%d_%H%M%S")
 
               if save_mode == "image":
                 filename = (
-                  f"person/person_entry_{person_entry_count}"
+                  f"{self.output_dir}/person_entry_{person_entry_count}"
                   f"_{timestamp_str}_{int(time.time())}.jpg"
                 )
                 self._save_annotated_snapshot(frame, boxes, filename)
@@ -326,7 +327,7 @@ class StreamProcessor:
 
               elif save_mode == "video":
                 clip_filename = (
-                  f"person/person_clip_{person_entry_count}"
+                  f"{self.output_dir}/person_clip_{person_entry_count}"
                   f"_{timestamp_str}_{int(time.time())}.mp4"
                 )
                 h_frame, w_frame = frame.shape[:2]
