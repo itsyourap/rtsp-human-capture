@@ -1,0 +1,332 @@
+---
+title: 'Model Setup'
+description: 'Download and configure YOLOv4/YOLOv3 models for person detection'
+icon: 'download'
+---
+
+## Overview
+
+RTSP Human Capture supports multiple detection models with automatic fallback. The system tries to load models in this order:
+
+1. **YOLOv4** (recommended for best accuracy)
+2. **YOLOv3** (fallback if YOLOv4 not found)
+3. **HOG** (OpenCV built-in, no files required)
+
+<Note>
+The HOG detector runs automatically when no YOLO model files are found. While less accurate than YOLO, it requires no additional downloads and works immediately.
+</Note>
+
+## Model Directory Structure
+
+By default, model files should be placed in the `model/` directory:
+
+```text
+rtsp-human-capture/
+├── model/
+│   ├── yolov4.weights      # Main model weights
+│   ├── yolov4.cfg          # Model configuration
+│   └── coco.names          # Class labels (80 classes)
+├── main.py
+└── config.cfg
+```
+
+<Tip>
+You can change the model directory location in `config.cfg` by setting `model_dir` under the `[paths]` section.
+</Tip>
+
+## Downloading YOLOv4 Files
+
+YOLOv4 provides the best detection accuracy. Download these three files:
+
+<Steps>
+  <Step title="Download yolov4.weights">
+    Download the pre-trained weights file (245 MB):
+    
+    ```bash
+    wget https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.weights -P model/
+    ```
+    
+    Or download manually from: [yolov4.weights](https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.weights)
+  </Step>
+  
+  <Step title="Download yolov4.cfg">
+    Download the model configuration file:
+    
+    ```bash
+    wget https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4.cfg -P model/
+    ```
+    
+    Or download manually from: [yolov4.cfg](https://github.com/AlexeyAB/darknet/blob/master/cfg/yolov4.cfg)
+  </Step>
+  
+  <Step title="Download coco.names">
+    Download the COCO class labels file:
+    
+    ```bash
+    wget https://raw.githubusercontent.com/AlexeyAB/darknet/master/data/coco.names -P model/
+    ```
+    
+    Or download manually from: [coco.names](https://github.com/AlexeyAB/darknet/blob/master/data/coco.names)
+  </Step>
+</Steps>
+
+## Downloading YOLOv3 Files (Alternative)
+
+If you prefer YOLOv3 or want it as a fallback:
+
+<Tabs>
+  <Tab title="YOLOv3 Weights">
+    ```bash
+    wget https://pjreddie.com/media/files/yolov3.weights -P model/
+    ```
+  </Tab>
+  
+  <Tab title="YOLOv3 Config">
+    ```bash
+    wget https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov3.cfg -P model/
+    ```
+  </Tab>
+  
+  <Tab title="COCO Names">
+    ```bash
+    wget https://raw.githubusercontent.com/AlexeyAB/darknet/master/data/coco.names -P model/
+    ```
+  </Tab>
+</Tabs>
+
+## HOG Fallback Detector
+
+The Histogram of Oriented Gradients (HOG) detector is OpenCV's built-in person detection method.
+
+### When HOG is Used
+
+HOG activates automatically when:
+- No `yolov4.weights` file is found
+- No `yolov3.weights` file is found
+- YOLO model loading fails
+
+### HOG Characteristics
+
+<CardGroup cols={2}>
+  <Card title="Advantages" icon="check">
+    - No model files required
+    - Lightweight and fast
+    - Works immediately after installation
+  </Card>
+  
+  <Card title="Limitations" icon="triangle-exclamation">
+    - Lower accuracy than YOLO
+    - More false positives/negatives
+    - Less robust to varying poses
+  </Card>
+</CardGroup>
+
+### HOG Implementation
+
+From `person_detector.py:53-60`:
+
+```python
+except:
+    print("Warning: YOLO weights not found. Using OpenCV's built-in HOG person detector as fallback.")
+    self.net = None
+    self.hog = cv2.HOGDescriptor()
+    # Convert to numpy array for setSVMDetector
+    default_people_detector = np.array(
+        cv2.HOGDescriptor.getDefaultPeopleDetector(), dtype=np.float32)
+    self.hog.setSVMDetector(default_people_detector)
+```
+
+## Verifying Model Installation
+
+<Steps>
+  <Step title="Check file presence">
+    Verify all required files exist:
+    
+    ```bash
+    ls -lh model/
+    ```
+    
+    You should see:
+    ```text
+    yolov4.weights  (~245 MB)
+    yolov4.cfg      (~12 KB)
+    coco.names      (~1 KB)
+    ```
+  </Step>
+  
+  <Step title="Test with an image">
+    Run a quick test to verify the model loads correctly:
+    
+    ```bash
+    uv run main.py --test-image test.jpg --save image
+    ```
+    
+    Look for this output:
+    ```text
+    Loading person detection model...
+    Model loaded: YOLOv4
+    Confidence threshold: 0.5
+    Person area threshold: 1000 pixels
+    ```
+  </Step>
+  
+  <Step title="Check GPU detection (optional)">
+    If you have CUDA installed, you should see:
+    
+    ```text
+    CUDA available, using GPU for inference
+    ```
+    
+    If not:
+    ```text
+    CUDA not available, using CPU for inference
+    ```
+  </Step>
+</Steps>
+
+## Model Loading Logic
+
+The `PersonDetector` class attempts to load models in this sequence (from `person_detector.py:42-60`):
+
+```python
+# Try to load YOLO model files
+try:
+    self.net = cv2.dnn.readNet(
+        f"{model_dir}/yolov4.weights", f"{model_dir}/yolov4.cfg")
+    model_name = "YOLOv4"
+except:
+    try:
+        self.net = cv2.dnn.readNet(
+            f"{model_dir}/yolov3.weights", f"{model_dir}/yolov3.cfg")
+        model_name = "YOLOv3"
+    except:
+        print("Warning: YOLO weights not found. Using OpenCV's built-in HOG person detector as fallback.")
+        self.net = None
+        self.hog = cv2.HOGDescriptor()
+        default_people_detector = np.array(
+            cv2.HOGDescriptor.getDefaultPeopleDetector(), dtype=np.float32)
+        self.hog.setSVMDetector(default_people_detector)
+        model_name = "HOG"
+```
+
+## COCO Classes
+
+The `coco.names` file contains 80 object classes. RTSP Human Capture only detects **class 0: person**.
+
+From `person_detector.py:130-131`:
+
+```python
+# Only detect persons (class_id = 0 in COCO)
+if class_id == 0 and confidence > self.confidence_threshold:
+```
+
+<Accordion title="Full COCO Class List">
+  The COCO dataset includes 80 classes:
+  
+  0. person
+  1. bicycle
+  2. car
+  3. motorbike
+  4. aeroplane
+  5. bus
+  6. train
+  7. truck
+  8. boat
+  9. traffic light
+  ... (and 70 more)
+  
+  Only "person" (class 0) is used for detection in this application.
+</Accordion>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Model files not loading">
+    **Symptoms:**
+    ```text
+    Warning: YOLO weights not found. Using OpenCV's built-in HOG person detector as fallback.
+    ```
+    
+    **Solutions:**
+    - Verify files are in the correct directory (default: `model/`)
+    - Check file names are exactly: `yolov4.weights`, `yolov4.cfg`, `coco.names`
+    - Ensure files aren't corrupted (check file sizes)
+    - Verify read permissions on model files
+  </Accordion>
+  
+  <Accordion title="OpenCV DNN errors">
+    **Symptoms:**
+    ```text
+    Error: OpenCV(4.x.x) ... DNN module is not built with CUDA backend
+    ```
+    
+    **Solution:**
+    This is just a warning. The system will automatically fall back to CPU inference. See [GPU Acceleration](/guides/gpu-acceleration) for CUDA setup.
+  </Accordion>
+  
+  <Accordion title="coco.names not found">
+    **Behavior:**
+    System uses fallback class list (from `person_detector.py:79-81`):
+    
+    ```python
+    except:
+        # Default COCO classes if file not found
+        self.classes = ["person", "bicycle", "car",
+                        "motorbike", "aeroplane", "bus", "train", "truck"]
+    ```
+    
+    **Impact:** Detection still works, but only first 8 classes are named.
+    
+    **Solution:** Download `coco.names` as shown above.
+  </Accordion>
+  
+  <Accordion title="Wrong model directory">
+    **Symptoms:**
+    Files exist but system reports they're not found.
+    
+    **Solution:**
+    Check your `config.cfg` file:
+    
+    ```ini
+    [paths]
+    model_dir = model  # Make sure this matches your directory
+    ```
+    
+    Or override at runtime:
+    ```bash
+    python main.py --config config.cfg --rtsp "rtsp://..." --save image
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Comparison
+
+| Model | Accuracy | Speed (CPU) | Speed (GPU) | File Size |
+|-------|----------|-------------|-------------|----------|
+| YOLOv4 | Excellent | ~100-300ms/frame | ~10-30ms/frame | 245 MB |
+| YOLOv3 | Very Good | ~80-250ms/frame | ~8-25ms/frame | 248 MB |
+| HOG | Fair | ~50-150ms/frame | N/A | 0 MB |
+
+<Note>
+Times are approximate and vary based on image resolution, hardware, and scene complexity.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Configure detection thresholds and paths
+  </Card>
+  
+  <Card title="GPU Acceleration" icon="microchip" href="/guides/gpu-acceleration">
+    Enable CUDA for faster inference
+  </Card>
+  
+  <Card title="Single Stream" icon="video" href="/guides/single-stream">
+    Process your first RTSP stream
+  </Card>
+  
+  <Card title="Multi-Stream" icon="grid" href="/guides/multi-stream">
+    Monitor multiple cameras simultaneously
+  </Card>
+</CardGroup>

@@ -1,0 +1,282 @@
+---
+title: CLI Commands
+description: Complete command-line interface reference for RTSP Human Capture
+---
+
+## Overview
+
+RTSP Human Capture provides a comprehensive CLI with support for single and multiple streams, configurable detection thresholds, and flexible display options.
+
+## Basic Usage
+
+```bash
+python main.py [OPTIONS]
+```
+
+## Input Source Arguments
+
+Specify one of the following input sources:
+
+<ParamField path="--rtsp" type="string">
+  Single RTSP stream URL to process.
+  
+  **Example:**
+  ```bash
+  python main.py --rtsp 'rtsp://camera1.com/stream' --save image
+  ```
+</ParamField>
+
+<ParamField path="--rtsp-list" type="string[]">
+  Multiple RTSP stream URLs (space-separated). Each stream is processed in a separate thread with auto-numbered IDs (1, 2, 3, ...).
+  
+  **Example:**
+  ```bash
+  python main.py --rtsp-list 'rtsp://cam1.com' 'rtsp://cam2.com' --save video --display
+  ```
+</ParamField>
+
+<ParamField path="--rtsp-file" type="string">
+  Path to a file containing RTSP URLs, one per line. Lines starting with `#` are treated as comments and ignored.
+  
+  **Example:**
+  ```bash
+  python main.py --rtsp-file rtsp_streams.txt --save video --display
+  ```
+  
+  **File format:**
+  ```
+  # Production cameras
+  rtsp://camera1.example.com/stream
+  rtsp://camera2.example.com/stream
+  # Backup camera
+  rtsp://camera3.example.com/stream
+  ```
+</ParamField>
+
+<ParamField path="--test-image" type="string">
+  Path to an image file for testing the detector. Runs detection on a single image and saves an annotated result with filename `test_result_<timestamp>.jpg`.
+  
+  **Example:**
+  ```bash
+  python main.py --test-image 'test_image.jpg' --save image
+  ```
+  
+  **Note:** This mode does not require an RTSP stream.
+</ParamField>
+
+## Configuration Arguments
+
+<ParamField path="--config" type="string" default="config.cfg">
+  Path to configuration file. If not specified, looks for `config.cfg` in the current working directory.
+  
+  **Example:**
+  ```bash
+  python main.py --config production.cfg --rtsp 'rtsp://cam.com' --save image
+  ```
+</ParamField>
+
+## Detection Parameters
+
+These parameters override values from the config file when specified:
+
+<ParamField path="--confidence" type="float" default="null">
+  Confidence threshold for person detection (0.0 to 1.0). Overrides the `confidence_threshold` value from the config file.
+  
+  Higher values = fewer false positives, but may miss some detections.
+  
+  **Example:**
+  ```bash
+  python main.py --rtsp 'rtsp://cam.com' --confidence 0.7 --save image
+  ```
+</ParamField>
+
+<ParamField path="--area-threshold" type="integer" default="null">
+  Minimum person bounding box area in pixels. Overrides the `person_area_threshold` value from the config file.
+  
+  Filters out very small detections (distant persons or false positives).
+  
+  **Example:**
+  ```bash
+  python main.py --rtsp 'rtsp://cam.com' --area-threshold 2000 --save image
+  ```
+</ParamField>
+
+<ParamField path="--frame-skip" type="integer" default="null">
+  Process every Nth frame. Overrides the `frame_skip` value from the config file.
+  
+  Higher values = faster processing but may miss brief appearances. For a 30 fps stream, `--frame-skip 15` means ~2 detections per second.
+  
+  **Example:**
+  ```bash
+  python main.py --rtsp 'rtsp://cam.com' --frame-skip 30 --save video
+  ```
+</ParamField>
+
+## Output Arguments
+
+<ParamField path="--save" type="enum" required>
+  **Required.** Save mode for captured person detections.
+  
+  **Values:**
+  - `image` - Save JPEG snapshots when a person enters the frame
+  - `video` - Record MP4 video clips from entry until exit
+  
+  **Examples:**
+  ```bash
+  # Snapshot mode
+  python main.py --rtsp 'rtsp://cam.com' --save image
+  
+  # Video clip mode
+  python main.py --rtsp 'rtsp://cam.com' --save video
+  ```
+  
+  **Output location:** Files are saved to the directory specified in `config.cfg` under `[paths] output_dir`.
+</ParamField>
+
+## Display Arguments
+
+<ParamField path="--no-display" type="boolean">
+  Disable the video display window in single-stream mode (useful for headless servers or recording-only operation).
+  
+  **Example:**
+  ```bash
+  python main.py --rtsp 'rtsp://cam.com' --save video --no-display
+  ```
+  
+  **Note:** Only applicable when using `--rtsp` (single stream).
+</ParamField>
+
+<ParamField path="--display" type="boolean">
+  Enable grid display window for multiple streams. Shows all streams in a resizable grid layout.
+  
+  **Example:**
+  ```bash
+  python main.py --rtsp-list 'rtsp://cam1.com' 'rtsp://cam2.com' --save image --display
+  ```
+  
+  **Note:** Only applicable when using `--rtsp-list` or `--rtsp-file` (multiple streams).
+</ParamField>
+
+## Complete Examples
+
+### Single Stream with Display
+
+```bash
+python main.py \
+  --rtsp 'rtsp://192.168.1.100/stream' \
+  --save image \
+  --confidence 0.6 \
+  --frame-skip 15
+```
+
+### Single Stream Headless (No Display)
+
+```bash
+python main.py \
+  --rtsp 'rtsp://192.168.1.100/stream' \
+  --save video \
+  --no-display
+```
+
+### Multiple Streams with Grid Display
+
+```bash
+python main.py \
+  --rtsp-list \
+    'rtsp://camera1.local/stream' \
+    'rtsp://camera2.local/stream' \
+    'rtsp://camera3.local/stream' \
+  --save video \
+  --display \
+  --frame-skip 20
+```
+
+### Multiple Streams from File
+
+```bash
+python main.py \
+  --rtsp-file cameras.txt \
+  --save image \
+  --display \
+  --config production.cfg
+```
+
+### Test with Static Image
+
+```bash
+python main.py \
+  --test-image test_photo.jpg \
+  --save image \
+  --confidence 0.5
+```
+
+### Override All Config Values
+
+```bash
+python main.py \
+  --config custom.cfg \
+  --rtsp 'rtsp://cam.com/stream' \
+  --save video \
+  --confidence 0.7 \
+  --area-threshold 1500 \
+  --frame-skip 10
+```
+
+## Exit Codes
+
+| Code | Description |
+|------|-------------|
+| `0` | Success |
+| `1` | Configuration file not found or invalid |
+
+## Error Handling
+
+### Configuration Errors
+
+If the config file is not found:
+```
+Error: Config file not found: 'config.cfg'. Create one or copy the default config.cfg.
+```
+
+If the config file has invalid values:
+```
+Config error: confidence_threshold must be between 0 and 1, got 1.5
+```
+
+### Input Errors
+
+If no input source is specified:
+```
+No input specified. Use --help for usage information.
+
+Example usage:
+  Single stream:    python main.py --rtsp 'rtsp://camera1.com/stream' --save image
+  Multiple streams: python main.py --rtsp-list 'rtsp://cam1.com' 'rtsp://cam2.com' --save video
+  With display:     python main.py --rtsp-list 'rtsp://cam1.com' --save image --display
+  From file:        python main.py --rtsp-file rtsp_streams.txt --save video --display
+  Test image:       python main.py --test-image 'image.jpg' --save image
+```
+
+### RTSP Connection Errors
+
+If unable to connect to an RTSP stream:
+```
+[Stream 1] Error: Could not connect to RTSP stream
+```
+
+The system will attempt automatic reconnection (up to 5 attempts) before giving up.
+
+## Interactive Controls
+
+### Single Stream Display
+
+- **Press `q`** - Quit the application
+
+### Multiple Stream Grid Display
+
+- **Press `q`** - Stop all streams and quit
+- **Ctrl+C** - Gracefully stop all streams
+
+## Implementation Reference
+
+The CLI argument parsing is implemented in `main.py:47-76` using Python's `argparse` module. Configuration loading happens at `main.py:80-94`.

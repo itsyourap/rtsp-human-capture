@@ -1,0 +1,321 @@
+---
+title: 'Image Mode'
+description: 'Capture annotated snapshots when a person enters the camera frame'
+icon: 'camera'
+---
+
+## Overview
+
+Image mode captures a single JPEG snapshot each time a person enters the camera frame. The snapshot is annotated with bounding boxes and confidence scores, making it ideal for entry logging, visitor tracking, and event-based monitoring.
+
+### How It Works
+
+When running in image mode (`--save image`):
+
+1. **Detection**: The system analyzes every Nth frame (configurable via `frame_skip`) for person presence
+2. **Entry Detection**: When a person is first detected after being absent, an "entry event" is triggered
+3. **Snapshot Capture**: An annotated JPEG is saved immediately with:
+   - Green bounding boxes around detected persons
+   - Confidence scores for each detection
+   - Sequential entry numbering
+4. **Waiting State**: The system continues monitoring but won't save another snapshot until the person exits and re-enters
+
+<Note>
+Image mode saves **one snapshot per entry event**, not one per frame. This prevents hundreds of duplicate images when a person remains in frame.
+</Note>
+
+## Basic Usage
+
+<Tabs>
+  <Tab title="Single Stream">
+    ```bash
+    uv run main.py --rtsp "rtsp://192.168.1.100/stream" --save image
+    ```
+
+    **Output:**
+    ```
+    Connecting to RTSP stream: rtsp://192.168.1.100/stream
+    Created directory: output
+    Connected successfully! Processing frames...
+    [2026-03-09 14:30:22] Frame 15: 1 person(s) detected
+      Person entered frame! Entry #1
+      Saved snapshot: output/person_entry_1_20260309_143022_1741528222.jpg
+    ```
+  </Tab>
+
+  <Tab title="Multiple Streams">
+    ```bash
+    uv run main.py --rtsp-list \
+      "rtsp://camera1.local/stream" \
+      "rtsp://camera2.local/stream" \
+      --save image
+    ```
+
+    **Output:**
+    ```
+    Processing 2 RTSP streams...
+    [Stream 1] Connecting to: rtsp://camera1.local/stream
+    [Stream 2] Connecting to: rtsp://camera2.local/stream
+    [Stream 1] Created directory: output/stream_1
+    [Stream 2] Created directory: output/stream_2
+    [Stream 1] Connected successfully! Processing frames...
+    [Stream 2] Connected successfully! Processing frames...
+    [2026-03-09 14:30:25] [Stream 1] Frame 15: 1 person(s) detected
+    [Stream 1]   Person entered frame! Entry #1
+    [Stream 1]   Saved snapshot: output/stream_1/person_entry_1_20260309_143025_1741528225.jpg
+    ```
+  </Tab>
+
+  <Tab title="From File">
+    Create a file `cameras.txt`:
+    ```txt
+    # Office cameras
+    rtsp://office-cam-1.local/stream
+    rtsp://office-cam-2.local/stream
+    rtsp://office-cam-3.local/stream
+    ```
+
+    Run:
+    ```bash
+    uv run main.py --rtsp-file cameras.txt --save image --display
+    ```
+  </Tab>
+</Tabs>
+
+## Output Files
+
+### File Naming Convention
+
+**Single Stream:**
+```
+output/person_entry_{entry_count}_{timestamp}_{unix_time}.jpg
+```
+
+Example: `person_entry_1_20260309_143022_1741528222.jpg`
+
+**Multiple Streams:**
+```
+output/stream_{stream_id}/person_entry_{entry_count}_{timestamp}_{unix_time}.jpg
+```
+
+Example: `output/stream_1/person_entry_1_20260309_143022_1741528222.jpg`
+
+### File Structure
+
+```text
+output/
+├── stream_1/
+│   ├── person_entry_1_20260309_143022_1741528222.jpg
+│   ├── person_entry_2_20260309_143156_1741528316.jpg
+│   └── person_entry_3_20260309_143445_1741528485.jpg
+├── stream_2/
+│   ├── person_entry_1_20260309_143030_1741528230.jpg
+│   └── person_entry_2_20260309_143512_1741528512.jpg
+└── stream_3/
+    └── person_entry_1_20260309_143102_1741528262.jpg
+```
+
+## Use Cases
+
+<Steps>
+  <Step title="Visitor Entry Logging">
+    Monitor building entrances and capture a photo each time someone enters:
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://entrance-cam.local/stream" \
+      --save image \
+      --confidence 0.6 \
+      --area-threshold 2000
+    ```
+    
+    Higher thresholds reduce false positives from distant or partial detections.
+  </Step>
+
+  <Step title="Multi-Zone Surveillance">
+    Monitor multiple areas simultaneously with live preview:
+    
+    ```bash
+    uv run main.py --rtsp-list \
+      "rtsp://zone-a.local" \
+      "rtsp://zone-b.local" \
+      "rtsp://zone-c.local" \
+      --save image \
+      --display
+    ```
+    
+    Press 'q' in the grid window to stop all streams.
+  </Step>
+
+  <Step title="Low-Storage Monitoring">
+    Minimize disk usage by capturing only entry events:
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://camera.local/stream" \
+      --save image \
+      --frame-skip 30 \
+      --no-display
+    ```
+    
+    Process fewer frames (`frame-skip 30`) and disable display for headless operation.
+  </Step>
+
+  <Step title="High-Precision Detection">
+    Reduce false positives with stricter thresholds:
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://camera.local/stream" \
+      --save image \
+      --confidence 0.7 \
+      --area-threshold 5000
+    ```
+    
+    Only captures large, high-confidence detections.
+  </Step>
+</Steps>
+
+## Customizing Detection Thresholds
+
+### Confidence Threshold
+
+Controls the minimum detection confidence score (0.0 to 1.0):
+
+```bash
+# Default: 0.5 (50% confidence)
+uv run main.py --rtsp "rtsp://camera.local" --save image
+
+# High precision: Only very confident detections
+uv run main.py --rtsp "rtsp://camera.local" --save image --confidence 0.75
+
+# High recall: Capture more potential persons (more false positives)
+uv run main.py --rtsp "rtsp://camera.local" --save image --confidence 0.3
+```
+
+<Note>
+**Lower values** (0.3-0.4): More detections, more false positives  
+**Default** (0.5): Balanced accuracy  
+**Higher values** (0.7-0.8): Fewer false positives, may miss some persons
+</Note>
+
+### Area Threshold
+
+Controls the minimum bounding box area in pixels:
+
+```bash
+# Default: 1000 pixels (minimum person size)
+uv run main.py --rtsp "rtsp://camera.local" --save image
+
+# Ignore small/distant persons
+uv run main.py --rtsp "rtsp://camera.local" --save image --area-threshold 5000
+
+# Capture even small detections
+uv run main.py --rtsp "rtsp://camera.local" --save image --area-threshold 500
+```
+
+**Recommended values:**
+- **Close-range cameras** (< 5 meters): 2000-5000 pixels
+- **Medium-range cameras** (5-15 meters): 1000-2000 pixels  
+- **Long-range cameras** (> 15 meters): 500-1000 pixels
+
+### Frame Skip
+
+Controls how many frames to skip between detections:
+
+```bash
+# Default: 15 (analyze every 15th frame ≈ 2 fps on 30fps stream)
+uv run main.py --rtsp "rtsp://camera.local" --save image
+
+# Faster detection (more CPU usage)
+uv run main.py --rtsp "rtsp://camera.local" --save image --frame-skip 5
+
+# Slower detection (less CPU usage)
+uv run main.py --rtsp "rtsp://camera.local" --save image --frame-skip 30
+```
+
+<Note>
+Lower `frame-skip` values increase CPU/GPU usage but detect entries faster. Higher values reduce resource usage but may miss brief appearances.
+</Note>
+
+## Advanced Configuration
+
+### Using a Custom Config File
+
+Create `custom.cfg`:
+
+```ini
+[paths]
+model_dir = /opt/models/yolo
+output_dir = /data/surveillance/images
+
+[detection]
+confidence_threshold = 0.6
+person_area_threshold = 2500
+frame_skip = 20
+```
+
+Run:
+```bash
+uv run main.py --config custom.cfg \
+  --rtsp "rtsp://camera.local" \
+  --save image
+```
+
+### Override Config Values
+
+Command-line flags always take precedence over config file values:
+
+```bash
+uv run main.py --config production.cfg \
+  --rtsp "rtsp://camera.local" \
+  --save image \
+  --confidence 0.7  # Overrides config value
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Too many false positive snapshots">
+    Increase detection thresholds:
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://camera.local" --save image \
+      --confidence 0.65 \
+      --area-threshold 3000
+    ```
+  </Accordion>
+
+  <Accordion title="Missing person entries">
+    Lower thresholds or reduce frame skip:
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://camera.local" --save image \
+      --confidence 0.4 \
+      --frame-skip 10
+    ```
+  </Accordion>
+
+  <Accordion title="Capturing multiple snapshots for same person">
+    This is expected behavior. Each time a person **exits and re-enters** the frame, a new snapshot is saved. If a person remains continuously in frame, only one snapshot is captured at entry.
+  </Accordion>
+
+  <Accordion title="No images saved">
+    Check:
+    - Output directory permissions
+    - Detection thresholds (try lowering `--confidence`)
+    - Use `--test-image` to verify detection works
+    
+    ```bash
+    uv run main.py --test-image test.jpg --save image
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Video Mode" icon="video" href="/examples/video-mode">
+    Capture MP4 clips of entire presence duration
+  </Card>
+  <Card title="Test Image" icon="flask" href="/examples/test-image">
+    Test detection with a local image file
+  </Card>
+</CardGroup>

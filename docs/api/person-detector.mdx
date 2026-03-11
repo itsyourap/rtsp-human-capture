@@ -1,0 +1,426 @@
+---
+title: PersonDetector
+description: Thread-safe person detection class with YOLO and HOG fallback support
+---
+
+## Overview
+
+The `PersonDetector` class provides thread-safe person detection using YOLO (YOLOv4/YOLOv3) with automatic fallback to OpenCV's HOG descriptor. All inference operations are protected by an internal lock to ensure thread safety when processing multiple streams concurrently.
+
+## Class Definition
+
+```python
+from person_detector import PersonDetector
+
+detector = PersonDetector(
+    confidence_threshold=0.5,
+    person_area_threshold=1000,
+    model_dir="model"
+)
+```
+
+## Constructor
+
+### `__init__()`
+
+```python
+def __init__(
+    self,
+    confidence_threshold: float = 0.5,
+    person_area_threshold: int = 1000,
+    model_dir: str = "model",
+) -> None
+```
+
+Initialize the person detector and load the detection model.
+
+<ParamField path="confidence_threshold" type="float" default="0.5">
+  Minimum detection confidence score (0.0 to 1.0). Detections below this threshold are filtered out.
+  
+  **Range:** 0.0 - 1.0  
+  **Recommended:** 0.5 for balanced accuracy, 0.7 for fewer false positives
+</ParamField>
+
+<ParamField path="person_area_threshold" type="int" default="1000">
+  Minimum bounding box area in pixels (width × height). Smaller detections are filtered out to reduce false positives from distant or partial detections.
+  
+  **Units:** Pixels squared  
+  **Example:** A 50×20 pixel box (1000 px²) passes the default threshold
+</ParamField>
+
+<ParamField path="model_dir" type="str" default="model">
+  Directory containing YOLO model files. The detector attempts to load files in this order:
+  
+  1. YOLOv4: `yolov4.weights`, `yolov4.cfg`
+  2. YOLOv3: `yolov3.weights`, `yolov3.cfg`
+  3. HOG: Falls back to OpenCV's built-in HOG detector if no YOLO files found
+  
+  Also loads class labels from `coco.names` if available.
+</ParamField>
+
+**Model Loading Process:**
+
+1. Attempts to load YOLOv4 weights and config from `model_dir/`
+2. If YOLOv4 not found, attempts YOLOv3
+3. If no YOLO files found, falls back to HOG descriptor
+4. Checks for CUDA GPU availability (uses GPU if available, CPU otherwise)
+5. Loads COCO class names from `coco.names` or uses defaults
+6. Sets up output layers for YOLO inference
+
+**Console Output:**
+```
+Loading person detection model...
+CUDA available, using GPU for inference
+Model loaded: YOLOv4
+Confidence threshold: 0.5
+Person area threshold: 1000 pixels
+```
+
+**Implementation:** `person_detector.py:11-100`
+
+## Public Methods
+
+### `detect_persons()`
+
+```python
+def detect_persons(
+    self, 
+    frame: cv2.typing.MatLike
+) -> Tuple[bool, int, List[Tuple[int, int, int, int, float]]]
+```
+
+Detect persons in the provided frame using the loaded model. This is the primary method for person detection.
+
+<ParamField path="frame" type="cv2.typing.MatLike" required>
+  OpenCV image matrix (BGR color format). Typically obtained from `cv2.VideoCapture.read()` or `cv2.imread()`.
+  
+  **Format:** NumPy array with shape `(height, width, 3)`  
+  **Color space:** BGR (OpenCV default)
+</ParamField>
+
+**Returns:** `Tuple[bool, int, List[Tuple[int, int, int, int, float]]]`
+
+<ResponseField name="has_person" type="bool">
+  Whether at least one person was detected in the frame.
+</ResponseField>
+
+<ResponseField name="person_count" type="int">
+  Total number of persons detected (after filtering by confidence and area thresholds).
+</ResponseField>
+
+<ResponseField name="boxes" type="List[Tuple[int, int, int, int, float]]">
+  List of bounding boxes for detected persons. Each tuple contains:
+  
+  <Expandable title="tuple format">
+    - `x` (int): Top-left corner x-coordinate
+    - `y` (int): Top-left corner y-coordinate
+    - `w` (int): Bounding box width
+    - `h` (int): Bounding box height
+    - `confidence` (float): Detection confidence score (0.0 to 1.0)
+  </Expandable>
+</ResponseField>
+
+**Thread Safety:** This method is thread-safe. It acquires an internal lock (`self._inference_lock`) to ensure only one thread performs inference at a time, as OpenCV DNN and HOG are not thread-safe.
+
+**Usage Example:**
+
+```python
+import cv2
+from person_detector import PersonDetector
+
+detector = PersonDetector(
+    confidence_threshold=0.6,
+    person_area_threshold=1500
+)
+
+# From video stream
+cap = cv2.VideoCapture('rtsp://camera.local/stream')
+ret, frame = cap.read()
+
+if ret:
+    has_person, person_count, boxes = detector.detect_persons(frame)
+    
+    print(f"Detected: {person_count} person(s)")
+    
+    for x, y, w, h, confidence in boxes:
+        print(f"Person at ({x}, {y}), size {w}×{h}, confidence {confidence:.2f}")
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+```
+
+**Multi-threading Example:**
+
+```python
+import threading
+from person_detector import PersonDetector
+
+# Single detector instance shared across threads
+detector = PersonDetector()
+
+def process_stream(stream_id, rtsp_url):
+    cap = cv2.VideoCapture(rtsp_url)
+    while True:
+        ret, frame = cap.read()
+        if ret:
+            # Thread-safe: internal lock ensures serial inference
+            has_person, count, boxes = detector.detect_persons(frame)
+            print(f"[Stream {stream_id}] Detected {count} person(s)")
+
+# Process multiple streams concurrently
+threads = [
+    threading.Thread(target=process_stream, args=(1, 'rtsp://cam1.local')),
+    threading.Thread(target=process_stream, args=(2, 'rtsp://cam2.local')),
+]
+for t in threads:
+    t.start()
+```
+
+**Implementation:** `person_detector.py:228-244`
+
+## Internal Detection Methods
+
+These methods are called internally by `detect_persons()` but can be useful for understanding the detection pipeline.
+
+### `detect_persons_yolo()`
+
+```python
+def detect_persons_yolo(
+    self, 
+    frame: cv2.typing.MatLike
+) -> List[Tuple[int, int, int, int, float]]
+```
+
+Internal method that performs YOLO-based person detection.
+
+**Process:**
+
+1. Creates a 416×416 blob from the input frame
+2. Runs forward pass through YOLO network
+3. Filters detections for class_id=0 (person in COCO dataset)
+4. Applies confidence threshold filtering
+5. Applies bounding box area threshold filtering
+6. Applies Non-Maximum Suppression (NMS) with threshold 0.3
+7. Ensures bounding boxes are within frame boundaries
+8. Returns list of validated bounding boxes
+
+**Parameters:**
+- `frame`: Input image (not modified - a copy is made for blob creation)
+
+**Returns:** List of bounding boxes `[(x, y, w, h, confidence), ...]`
+
+**NMS Threshold:** `0.3` (line 156) - More strict than typical values to reduce overlapping detections
+
+**Error Handling:** Returns empty list `[]` if any exception occurs during detection
+
+**Implementation:** `person_detector.py:101-173`
+
+### `detect_persons_hog()`
+
+```python
+def detect_persons_hog(
+    self, 
+    frame: cv2.typing.MatLike
+) -> List[Tuple[int, int, int, int, float]]
+```
+
+Internal method that performs HOG-based person detection (fallback when YOLO unavailable).
+
+**Process:**
+
+1. Resizes frame to max 640×480 for better performance
+2. Runs HOG detectMultiScale with window stride (8, 8)
+3. Scales detections back to original frame size
+4. Filters by confidence threshold and area threshold
+5. Ensures bounding boxes are within frame boundaries
+6. Returns list of validated bounding boxes
+
+**Parameters:**
+- `frame`: Input image (not modified - a copy is made for processing)
+
+**Returns:** List of bounding boxes `[(x, y, w, h, confidence), ...]`
+
+**HOG Parameters:**
+- `winStride`: (8, 8) - Detection window step size
+- `padding`: (32, 32) - Border padding around image
+- `scale`: 1.05 - Detection pyramid scale factor
+
+**Error Handling:** Returns empty list `[]` if any exception occurs during detection
+
+**Implementation:** `person_detector.py:175-226`
+
+## Instance Attributes
+
+These attributes are set during initialization and should be treated as read-only:
+
+<ResponseField name="confidence_threshold" type="float">
+  Minimum confidence score for detections (from constructor parameter)
+</ResponseField>
+
+<ResponseField name="person_area_threshold" type="int">
+  Minimum bounding box area in pixels (from constructor parameter)
+</ResponseField>
+
+<ResponseField name="model_dir" type="str">
+  Path to model directory (from constructor parameter)
+</ResponseField>
+
+<ResponseField name="net" type="Optional[cv2.dnn.Net]">
+  Loaded YOLO neural network, or `None` if using HOG fallback
+</ResponseField>
+
+<ResponseField name="hog" type="Optional[cv2.HOGDescriptor]">
+  HOG descriptor instance, or `None` if using YOLO
+</ResponseField>
+
+<ResponseField name="classes" type="List[str]">
+  COCO class names loaded from `coco.names` file
+</ResponseField>
+
+<ResponseField name="layer_names" type="List[str]">
+  All layer names in the YOLO network (empty if using HOG)
+</ResponseField>
+
+<ResponseField name="output_layers" type="List[str]">
+  YOLO output layer names for inference (empty if using HOG)
+</ResponseField>
+
+<ResponseField name="_inference_lock" type="threading.Lock">
+  Internal lock ensuring thread-safe inference. **Do not access directly.**
+</ResponseField>
+
+## GPU Acceleration
+
+The detector automatically uses NVIDIA GPU via CUDA if available:
+
+```python
+cuda_available = cv2.cuda.getCudaEnabledDeviceCount() > 0
+if cuda_available:
+    print("CUDA available, using GPU for inference")
+    self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+    self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+else:
+    print("CUDA not available, using CPU for inference")
+    self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+    self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+```
+
+**Requirements for GPU acceleration:**
+- OpenCV compiled with CUDA support
+- NVIDIA GPU with CUDA drivers installed
+- CUDA toolkit installed
+
+**Implementation:** `person_detector.py:63-72`
+
+## Model Fallback Hierarchy
+
+1. **YOLOv4** (preferred): Best accuracy, requires downloaded weights
+2. **YOLOv3** (fallback): Good accuracy, requires downloaded weights
+3. **HOG** (automatic fallback): Built-in OpenCV detector, no downloads needed
+
+**Model Download Links:**
+- [YOLOv4 weights](https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.weights)
+- [YOLOv4 config](https://github.com/AlexeyAB/darknet/blob/master/cfg/yolov4.cfg)
+- [COCO names](https://github.com/AlexeyAB/darknet/blob/master/data/coco.names)
+
+**Console Output for HOG Fallback:**
+```
+Loading person detection model...
+Warning: YOLO weights not found. Using OpenCV's built-in HOG person detector as fallback.
+Model loaded: HOG
+Confidence threshold: 0.5
+Person area threshold: 1000 pixels
+```
+
+## Thread Safety Guarantees
+
+The `PersonDetector` class is designed for safe concurrent use:
+
+- **Multiple threads CAN** share a single `PersonDetector` instance
+- **Inference is serialized** via `self._inference_lock` (line 235)
+- **OpenCV DNN and HOG** are not thread-safe, so the lock is essential
+- **Performance:** Multiple threads will queue inference requests sequentially
+
+**Why thread-safety matters:**
+
+```python
+# ✅ Safe: Multiple streams share one detector
+detector = PersonDetector()
+for stream_id, rtsp_url in enumerate(rtsp_urls):
+    threading.Thread(
+        target=process_stream,
+        args=(detector, stream_id, rtsp_url)  # Same detector instance
+    ).start()
+
+# ❌ Not necessary: Creating separate detectors wastes memory
+for stream_id, rtsp_url in enumerate(rtsp_urls):
+    detector = PersonDetector()  # New instance per thread (wasteful)
+    threading.Thread(...).start()
+```
+
+## Complete Usage Example
+
+```python
+import cv2
+from person_detector import PersonDetector
+from config import load_config
+
+# Load configuration
+cfg = load_config("config.cfg")
+
+# Initialize detector
+detector = PersonDetector(
+    confidence_threshold=cfg.confidence_threshold,
+    person_area_threshold=cfg.person_area_threshold,
+    model_dir=cfg.model_dir
+)
+
+# Process RTSP stream
+cap = cv2.VideoCapture('rtsp://192.168.1.100/stream')
+frame_count = 0
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+    
+    frame_count += 1
+    
+    # Run detection every 15 frames
+    if frame_count % 15 == 0:
+        has_person, person_count, boxes = detector.detect_persons(frame)
+        
+        if has_person:
+            print(f"Frame {frame_count}: Detected {person_count} person(s)")
+            
+            # Draw bounding boxes
+            for x, y, w, h, confidence in boxes:
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.putText(
+                    frame,
+                    f"Person {confidence:.2f}",
+                    (x, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 255, 0),
+                    2
+                )
+            
+            # Save snapshot
+            cv2.imwrite(f"person_{frame_count}.jpg", frame)
+    
+    # Display frame
+    cv2.imshow("Detection", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+```
+
+## Implementation Reference
+
+The `PersonDetector` class is implemented in `person_detector.py` (245 lines total):
+
+- Constructor: `person_detector.py:11-100`
+- `detect_persons_yolo()`: `person_detector.py:101-173`
+- `detect_persons_hog()`: `person_detector.py:175-226`
+- `detect_persons()`: `person_detector.py:228-244`

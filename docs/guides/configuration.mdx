@@ -1,0 +1,588 @@
+---
+title: 'Configuration'
+description: 'Complete guide to configuring RTSP Human Capture via config.cfg and CLI overrides'
+icon: 'gear'
+---
+
+## Configuration Overview
+
+RTSP Human Capture uses a two-tier configuration system:
+
+1. **config.cfg file** - INI-style configuration with default values
+2. **CLI arguments** - Runtime overrides for individual values
+
+<Note>
+CLI arguments always take precedence over config file values. This allows you to use a base configuration and adjust specific parameters per run.
+</Note>
+
+## Configuration File (config.cfg)
+
+### Default Configuration
+
+The default `config.cfg` file contains all available settings:
+
+```ini
+[paths]
+# Directory that contains the model files:
+#   yolov4.weights, yolov4.cfg  (or yolov3.weights / yolov3.cfg)
+#   coco.names
+model_dir = model
+
+# Root directory where captured images / video clips are saved.
+# For multi-stream runs a sub-folder per stream is created automatically:
+#   <output_dir>/stream_<id>/
+output_dir = output
+
+[detection]
+# Minimum score for a detection to be kept (0.0 – 1.0)
+confidence_threshold = 0.5
+
+# Minimum bounding-box area in pixels; smaller detections are discarded
+person_area_threshold = 1000
+
+# Analyse every Nth frame  (e.g. 15 ≈ 2 fps on a 30 fps stream)
+frame_skip = 15
+```
+
+### Configuration Sections
+
+<AccordionGroup>
+  <Accordion title="[paths] - File Paths" icon="folder">
+    Controls where the application reads model files and writes output.
+    
+    | Parameter | Type | Default | Description |
+    |-----------|------|---------|-------------|
+    | `model_dir` | string | `model` | Directory containing YOLO weights, config, and coco.names |
+    | `output_dir` | string | `output` | Root directory for saved snapshots and video clips |
+    
+    **Example:**
+    ```ini
+    [paths]
+    model_dir = /opt/models/yolo
+    output_dir = /mnt/recordings
+    ```
+  </Accordion>
+  
+  <Accordion title="[detection] - Detection Parameters" icon="bullseye">
+    Controls person detection sensitivity and performance.
+    
+    | Parameter | Type | Default | Range | Description |
+    |-----------|------|---------|-------|-------------|
+    | `confidence_threshold` | float | `0.5` | 0.0 - 1.0 | Minimum detection confidence score |
+    | `person_area_threshold` | int | `1000` | 0+ | Minimum bounding box area in pixels |
+    | `frame_skip` | int | `15` | 1+ | Process every Nth frame |
+    
+    **Example:**
+    ```ini
+    [detection]
+    confidence_threshold = 0.65
+    person_area_threshold = 2000
+    frame_skip = 10
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Configuration Parameters in Detail
+
+### model_dir
+
+<ParamField path="model_dir" type="string" default="model">
+  Directory containing YOLO model files. Can be absolute or relative path.
+</ParamField>
+
+**Valid values:**
+- Relative path: `model`, `models/yolo`, `./weights`
+- Absolute path: `/opt/models`, `/home/user/yolo`
+
+**What it should contain:**
+```text
+model/
+├── yolov4.weights
+├── yolov4.cfg
+└── coco.names
+```
+
+**Usage in code** (`person_detector.py:44-45`):
+```python
+self.net = cv2.dnn.readNet(
+    f"{model_dir}/yolov4.weights", f"{model_dir}/yolov4.cfg")
+```
+
+---
+
+### output_dir
+
+<ParamField path="output_dir" type="string" default="output">
+  Root directory where captured images and video clips are saved.
+</ParamField>
+
+**Behavior:**
+- **Single stream:** Files saved directly in `output_dir/`
+- **Multiple streams:** Sub-folders created as `output_dir/stream_<id>/`
+
+**Example structure:**
+```text
+output/
+├── stream_1/
+│   ├── person_entry_1_20260309_143022_1741528222.jpg
+│   └── person_clip_1_20260309_143022_1741528222.mp4
+└── stream_2/
+    ├── person_entry_1_20260309_143155_1741528315.jpg
+    └── person_entry_2_20260309_143420_1741528460.jpg
+```
+
+**Auto-creation** (`stream_processor.py:56-58`):
+```python
+if save_mode is not None:
+    person_dir = f"{self.output_dir}/stream_{stream_id}"
+    os.makedirs(person_dir, exist_ok=True)
+```
+
+---
+
+### confidence_threshold
+
+<ParamField path="confidence_threshold" type="float" default="0.5" required>
+  Minimum detection confidence score (0.0 to 1.0). Detections below this threshold are discarded.
+</ParamField>
+
+**How it works:**
+Each detection has a confidence score. Only detections exceeding this threshold are kept.
+
+**Recommendations:**
+
+<CardGroup cols={3}>
+  <Card title="Low (0.3-0.4)" icon="arrow-down">
+    **Use when:**
+    - Distant cameras
+    - Low light conditions
+    - Prefer false positives over missed detections
+    
+    **Trade-off:** More false alarms
+  </Card>
+  
+  <Card title="Medium (0.5-0.6)" icon="equals">
+    **Use when:**
+    - Standard conditions
+    - Balanced accuracy needed
+    - General purpose monitoring
+    
+    **Trade-off:** Good balance
+  </Card>
+  
+  <Card title="High (0.7-0.9)" icon="arrow-up">
+    **Use when:**
+    - High confidence required
+    - Minimize false positives
+    - Clear, well-lit scenes
+    
+    **Trade-off:** May miss some detections
+  </Card>
+</CardGroup>
+
+**Implementation** (`person_detector.py:131`):
+```python
+if class_id == 0 and confidence > self.confidence_threshold:
+```
+
+**Validation** (`config.py:60-63`):
+```python
+if not 0.0 < confidence_threshold < 1.0:
+    raise ValueError(
+        f"confidence_threshold must be between 0 and 1, got {confidence_threshold}"
+    )
+```
+
+---
+
+### person_area_threshold
+
+<ParamField path="person_area_threshold" type="integer" default="1000">
+  Minimum bounding box area in pixels. Detections with smaller areas are filtered out.
+</ParamField>
+
+**Purpose:** Filter out:
+- Distant/small detections
+- Partial detections at frame edges
+- Noise and false positives
+
+**Calculation:**
+```python
+area = width * height  # in pixels
+```
+
+**Example values:**
+
+| Threshold | Description | Use Case |
+|-----------|-------------|----------|
+| 500 | Very small | Detect distant persons |
+| 1000 | Small (default) | General purpose |
+| 2000 | Medium | Close-up monitoring |
+| 5000 | Large | Only nearby persons |
+
+**Reference frame sizes:**
+- 1920×1080 (Full HD) = 2,073,600 pixels
+- 1280×720 (HD) = 921,600 pixels
+- 640×480 (SD) = 307,200 pixels
+
+**Implementation** (`person_detector.py:147`):
+```python
+if w > 0 and h > 0 and w * h > self.person_area_threshold:
+```
+
+<Tip>
+For 1080p streams, `person_area_threshold = 1000` means detections must be at least ~32×32 pixels (about 1.5% of frame height).
+</Tip>
+
+---
+
+### frame_skip
+
+<ParamField path="frame_skip" type="integer" default="15">
+  Process every Nth frame. Higher values improve performance but reduce detection frequency.
+</ParamField>
+
+**Purpose:** Balance between:
+- **Performance:** Processing every frame is CPU/GPU intensive
+- **Responsiveness:** Skipping too many frames delays detection
+
+**Effective detection rate:**
+```python
+detection_fps = stream_fps / frame_skip
+```
+
+**Examples:**
+
+| Stream FPS | frame_skip | Detection Rate | Use Case |
+|------------|------------|----------------|----------|
+| 30 | 5 | 6 fps | High responsiveness |
+| 30 | 15 | 2 fps | Balanced (default) |
+| 30 | 30 | 1 fps | Low resource usage |
+| 25 | 25 | 1 fps | Minimal processing |
+
+**Implementation** (`stream_processor.py:113`):
+```python
+if frame_count % frame_skip == 0 and (current_time - last_detection_time) >= 0.5:
+    last_detection_time = current_time
+    has_person, person_count, boxes = self.detector.detect_persons(frame)
+```
+
+<Note>
+Additional throttling: Detection runs at most once per 0.5 seconds, even if `frame_skip` triggers more frequently.
+</Note>
+
+**Recommendations:**
+
+<Tabs>
+  <Tab title="High Performance Needed">
+    ```ini
+    frame_skip = 30  # 1 fps on 30fps stream
+    ```
+    Use when:
+    - Running many streams
+    - CPU/GPU limited
+    - Slow detection acceptable
+  </Tab>
+  
+  <Tab title="Balanced (Default)">
+    ```ini
+    frame_skip = 15  # 2 fps on 30fps stream
+    ```
+    Use when:
+    - Standard monitoring
+    - Moderate hardware
+    - Good responsiveness needed
+  </Tab>
+  
+  <Tab title="High Responsiveness">
+    ```ini
+    frame_skip = 5  # 6 fps on 30fps stream
+    ```
+    Use when:
+    - Fast-moving subjects
+    - Powerful hardware
+    - Quick detection critical
+  </Tab>
+</Tabs>
+
+## CLI Override Options
+
+All configuration values can be overridden at runtime using command-line arguments.
+
+### Configuration File Selection
+
+```bash
+python main.py --config /path/to/custom.cfg --rtsp "rtsp://..." --save image
+```
+
+<ParamField path="--config" type="string" default="config.cfg">
+  Path to configuration file to load.
+</ParamField>
+
+### Detection Parameter Overrides
+
+<CodeGroup>
+```bash Confidence Override
+python main.py --rtsp "rtsp://camera.local/stream" --save image \
+  --confidence 0.7
+```
+
+```bash Area Threshold Override
+python main.py --rtsp "rtsp://camera.local/stream" --save image \
+  --area-threshold 2000
+```
+
+```bash Frame Skip Override
+python main.py --rtsp "rtsp://camera.local/stream" --save video \
+  --frame-skip 10
+```
+
+```bash Multiple Overrides
+python main.py --rtsp "rtsp://camera.local/stream" --save video \
+  --confidence 0.65 \
+  --area-threshold 1500 \
+  --frame-skip 20
+```
+</CodeGroup>
+
+### Override Implementation
+
+From `main.py:89-94`:
+
+```python
+if args.confidence is not None:
+    cfg.confidence_threshold = args.confidence
+if args.area_threshold is not None:
+    cfg.person_area_threshold = args.area_threshold
+if args.frame_skip is not None:
+    cfg.frame_skip = args.frame_skip
+```
+
+<Note>
+Overrides only apply when explicitly provided. If a flag is omitted, the config file value is used.
+</Note>
+
+## Complete CLI Reference
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--config PATH` | string | Config file to load (default: `config.cfg`) |
+| `--confidence FLOAT` | float | Confidence threshold (0.0-1.0) |
+| `--area-threshold INT` | int | Minimum person area in pixels |
+| `--frame-skip INT` | int | Process every Nth frame |
+| `--rtsp URL` | string | Single RTSP stream URL |
+| `--rtsp-list URL [URL ...]` | list | Multiple RTSP URLs |
+| `--rtsp-file PATH` | string | File with URLs (one per line) |
+| `--test-image PATH` | string | Test with image file |
+| `--save {image,video}` | choice | **Required.** Save mode |
+| `--display` | flag | Enable grid display (multi-stream) |
+| `--no-display` | flag | Disable display (single-stream) |
+
+## Configuration Examples
+
+### High Security Monitoring
+
+**Scenario:** Bank entrance, minimize false alarms
+
+```ini
+[paths]
+model_dir = model
+output_dir = /mnt/security/footage
+
+[detection]
+confidence_threshold = 0.75  # High confidence required
+person_area_threshold = 3000  # Only detect close persons
+frame_skip = 10               # Check more frequently
+```
+
+### Performance-Optimized Multi-Stream
+
+**Scenario:** 16 camera warehouse monitoring
+
+```ini
+[paths]
+model_dir = model
+output_dir = output
+
+[detection]
+confidence_threshold = 0.5    # Standard confidence
+person_area_threshold = 1500  # Filter small detections
+frame_skip = 30               # Minimize CPU usage
+```
+
+### Parking Lot Monitoring
+
+**Scenario:** Wide-angle distant detection
+
+```ini
+[paths]
+model_dir = model
+output_dir = parking_events
+
+[detection]
+confidence_threshold = 0.4    # Lower for distant detection
+person_area_threshold = 500   # Detect small/distant persons
+frame_skip = 20               # Moderate frequency
+```
+
+## Configuration Loading
+
+The configuration loading process (from `config.py:30-77`):
+
+<Steps>
+  <Step title="Check file exists">
+    ```python
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"Config file not found: '{path}'. "
+            f"Create one or copy the default config.cfg."
+        )
+    ```
+  </Step>
+  
+  <Step title="Parse INI file">
+    ```python
+    parser = configparser.ConfigParser()
+    parser.read(path)
+    ```
+  </Step>
+  
+  <Step title="Load values with fallbacks">
+    ```python
+    model_dir = parser.get("paths", "model_dir", fallback="model").strip()
+    confidence_threshold = parser.getfloat(
+        "detection", "confidence_threshold", fallback=0.5
+    )
+    ```
+  </Step>
+  
+  <Step title="Validate values">
+    ```python
+    if not 0.0 < confidence_threshold < 1.0:
+        raise ValueError(f"confidence_threshold must be between 0 and 1")
+    if person_area_threshold < 0:
+        raise ValueError(f"person_area_threshold must be >= 0")
+    if frame_skip < 1:
+        raise ValueError(f"frame_skip must be >= 1")
+    ```
+  </Step>
+  
+  <Step title="Return AppConfig object">
+    ```python
+    return AppConfig(
+        model_dir=model_dir,
+        output_dir=output_dir,
+        confidence_threshold=confidence_threshold,
+        person_area_threshold=person_area_threshold,
+        frame_skip=frame_skip,
+    )
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Config file not found">
+    **Error:**
+    ```text
+    Error: Config file not found: 'config.cfg'. Create one or copy the default config.cfg.
+    ```
+    
+    **Solution:**
+    Create a `config.cfg` file in your working directory or specify a custom path:
+    ```bash
+    python main.py --config /path/to/config.cfg --rtsp "..." --save image
+    ```
+  </Accordion>
+  
+  <Accordion title="Invalid confidence threshold">
+    **Error:**
+    ```text
+    Config error: confidence_threshold must be between 0 and 1, got 1.5
+    ```
+    
+    **Solution:**
+    Ensure `confidence_threshold` is between 0.0 and 1.0:
+    ```ini
+    [detection]
+    confidence_threshold = 0.5  # Must be 0.0 < value < 1.0
+    ```
+  </Accordion>
+  
+  <Accordion title="Invalid frame_skip value">
+    **Error:**
+    ```text
+    Config error: frame_skip must be >= 1, got 0
+    ```
+    
+    **Solution:**
+    Set `frame_skip` to 1 or higher:
+    ```ini
+    [detection]
+    frame_skip = 15  # Must be >= 1
+    ```
+  </Accordion>
+  
+  <Accordion title="CLI overrides not working">
+    **Issue:** Config file values are used instead of CLI arguments.
+    
+    **Check:**
+    - Ensure flag syntax is correct: `--confidence 0.7` (not `--confidence=0.7`)
+    - CLI args must come after positional arguments
+    - Use `=` for some shells: `--confidence=0.7`
+    
+    **Debug:**
+    Look for this output:
+    ```text
+    Config loaded from: config.cfg
+      model_dir   = model
+      output_dir  = output
+    ```
+    The values shown reflect the final configuration after CLI overrides.
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Config Files for Defaults" icon="file-lines">
+    Keep common settings in `config.cfg` and override specific values via CLI when needed.
+  </Card>
+  
+  <Card title="Create Environment-Specific Configs" icon="layer-group">
+    ```bash
+    config.dev.cfg
+    config.production.cfg
+    config.testing.cfg
+    ```
+  </Card>
+  
+  <Card title="Version Control Your Configs" icon="code-branch">
+    Commit config files (except those with secrets) to track configuration changes over time.
+  </Card>
+  
+  <Card title="Document Custom Values" icon="comment">
+    Add comments in config files explaining why non-default values were chosen.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Single Stream Processing" icon="video" href="/guides/single-stream">
+    Learn to process a single RTSP stream
+  </Card>
+  
+  <Card title="Multi-Stream Processing" icon="grid" href="/guides/multi-stream">
+    Monitor multiple cameras simultaneously
+  </Card>
+  
+  <Card title="GPU Acceleration" icon="microchip" href="/guides/gpu-acceleration">
+    Speed up detection with CUDA
+  </Card>
+  
+  <Card title="Model Setup" icon="download" href="/guides/model-setup">
+    Configure YOLO models
+  </Card>
+</CardGroup>

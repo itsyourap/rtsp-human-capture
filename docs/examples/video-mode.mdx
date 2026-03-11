@@ -1,0 +1,420 @@
+---
+title: 'Video Mode'
+description: 'Record MP4 clips of the entire duration a person is present in frame'
+icon: 'video'
+---
+
+## Overview
+
+Video mode records an MP4 video clip for the entire duration a person is present in the camera frame. Recording starts when a person enters and stops when they exit, capturing the complete event timeline.
+
+### How It Works
+
+When running in video mode (`--save video`):
+
+1. **Detection**: The system analyzes every Nth frame for person presence
+2. **Entry Detection**: When a person enters the frame, recording begins immediately
+3. **Continuous Recording**: Every frame is written to the MP4 file while at least one person is detected
+4. **Exit Detection**: After 3 consecutive detection cycles with no person, recording stops and the file is saved
+5. **Waiting State**: The system continues monitoring for the next entry event
+
+<Note>
+Video mode captures **full presence duration**, not just a snapshot. This is ideal for reviewing behavior, incidents, or complete interactions.
+</Note>
+
+## Basic Usage
+
+<Tabs>
+  <Tab title="Single Stream">
+    ```bash
+    uv run main.py --rtsp "rtsp://192.168.1.100/stream" --save video
+    ```
+
+    **Output:**
+    ```
+    Connecting to RTSP stream: rtsp://192.168.1.100/stream
+    Created directory: output
+    Connected successfully! Processing frames...
+    [2026-03-09 14:30:22] Frame 15: 1 person(s) detected
+      Person entered frame! Entry #1
+      Started recording clip: output/person_clip_1_20260309_143022_1741528222.mp4
+    [2026-03-09 14:30:45] Frame 345: No persons
+      No person detected (1/3)
+      No person detected (2/3)
+      No person detected (3/3)
+      Person(s) exited. Saved clip: output/person_clip_1_20260309_143022_1741528222.mp4
+    ```
+  </Tab>
+
+  <Tab title="Multiple Streams">
+    ```bash
+    uv run main.py --rtsp-list \
+      "rtsp://camera1.local/stream" \
+      "rtsp://camera2.local/stream" \
+      "rtsp://camera3.local/stream" \
+      --save video --display
+    ```
+
+    **Output:**
+    ```
+    Processing 3 RTSP streams...
+    [Stream 1] Connecting to: rtsp://camera1.local/stream
+    [Stream 2] Connecting to: rtsp://camera2.local/stream
+    [Stream 3] Connecting to: rtsp://camera3.local/stream
+    [Stream 1] Created directory: output/stream_1
+    [Stream 2] Created directory: output/stream_2
+    [Stream 3] Created directory: output/stream_3
+    [Stream 1] Connected successfully! Processing frames...
+    [Stream 2] Connected successfully! Processing frames...
+    [Stream 3] Connected successfully! Processing frames...
+    [2026-03-09 14:30:25] [Stream 1] Frame 15: 2 person(s) detected
+    [Stream 1]   Person entered frame! Entry #1
+    [Stream 1]   Started recording clip: output/stream_1/person_clip_1_20260309_143025_1741528225.mp4
+    ```
+  </Tab>
+
+  <Tab title="Headless (No Display)">
+    ```bash
+    uv run main.py --rtsp "rtsp://camera.local/stream" \
+      --save video \
+      --no-display
+    ```
+
+    Ideal for server deployments where no GUI is available.
+  </Tab>
+</Tabs>
+
+## Output Files
+
+### File Naming Convention
+
+**Single Stream:**
+```
+output/person_clip_{entry_count}_{timestamp}_{unix_time}.mp4
+```
+
+Example: `person_clip_1_20260309_143022_1741528222.mp4`
+
+**Multiple Streams:**
+```
+output/stream_{stream_id}/person_clip_{entry_count}_{timestamp}_{unix_time}.mp4
+```
+
+Example: `output/stream_1/person_clip_1_20260309_143022_1741528222.mp4`
+
+### File Structure
+
+```text
+output/
+├── stream_1/
+│   ├── person_clip_1_20260309_143022_1741528222.mp4  # 23 seconds
+│   ├── person_clip_2_20260309_143156_1741528316.mp4  # 15 seconds
+│   └── person_clip_3_20260309_143445_1741528485.mp4  # 45 seconds
+├── stream_2/
+│   ├── person_clip_1_20260309_143030_1741528230.mp4  # 8 seconds
+│   └── person_clip_2_20260309_143512_1741528512.mp4  # 120 seconds
+└── stream_3/
+    └── person_clip_1_20260309_143102_1741528262.mp4  # 60 seconds
+```
+
+<Note>
+Clip duration varies based on how long the person remains in frame. Short clips (< 5 seconds) may indicate a person walking through quickly.
+</Note>
+
+## Video Codec and Settings
+
+### Default Settings
+
+The system automatically configures video encoding:
+
+- **Codec**: MP4V (MPEG-4 Part 2)
+- **FPS**: Matches source stream (auto-detected, defaults to 25 fps if unknown)
+- **Resolution**: Original stream resolution (no resizing)
+- **Format**: `.mp4` container
+
+### FPS Detection
+
+From `stream_processor.py:79-81`:
+
+```python
+stream_fps: float = cap.get(cv2.CAP_PROP_FPS)
+if stream_fps <= 0 or stream_fps > 120:
+  stream_fps = 25.0
+```
+
+The system reads the stream's FPS metadata. If invalid (≤0 or >120), it defaults to 25 fps.
+
+### Video Writer Initialization
+
+From `stream_processor.py:153-156`:
+
+```python
+h_frame, w_frame = frame.shape[:2]
+fourcc = cv2.VideoWriter.fourcc(*"mp4v")
+video_writer = cv2.VideoWriter(
+  clip_filename, fourcc, stream_fps, (w_frame, h_frame)
+)
+```
+
+<Note>
+All recorded clips preserve the original stream's frame rate and resolution. No transcoding or resizing is performed during recording.
+</Note>
+
+## Use Cases
+
+<Steps>
+  <Step title="Incident Review">
+    Record complete events for later review:
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://security-cam.local/stream" \
+      --save video \
+      --confidence 0.6
+    ```
+    
+    Each clip contains the full event timeline from entry to exit.
+  </Step>
+
+  <Step title="Behavior Analysis">
+    Capture interactions and movement patterns:
+    
+    ```bash
+    uv run main.py --rtsp-list \
+      "rtsp://retail-cam-1.local" \
+      "rtsp://retail-cam-2.local" \
+      --save video \
+      --display
+    ```
+    
+    Review customer behavior, dwell times, and traffic patterns.
+  </Step>
+
+  <Step title="Multi-Camera Recording">
+    Monitor multiple locations simultaneously:
+    
+    ```bash
+    uv run main.py --rtsp-file warehouse-cameras.txt \
+      --save video \
+      --display
+    ```
+    
+    Each camera records independently when motion is detected.
+  </Step>
+
+  <Step title="Long-Term Surveillance">
+    Optimize storage by recording only when people are present:
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://camera.local/stream" \
+      --save video \
+      --frame-skip 30 \
+      --no-display
+    ```
+    
+    Saves disk space compared to 24/7 recording.
+  </Step>
+</Steps>
+
+## Exit Detection Behavior
+
+### Three-Strike Rule
+
+The system uses a conservative exit detection to prevent premature clip termination:
+
+From `stream_processor.py:77`:
+```python
+NO_PERSON_EXIT_THRESHOLD: int = 3
+```
+
+A person must be **absent for 3 consecutive detection cycles** before the clip stops recording.
+
+**Example with `frame-skip 15`:**
+1. **Frame 15**: Person detected → recording
+2. **Frame 30**: Person detected → still recording
+3. **Frame 45**: No person (1/3) → continue recording
+4. **Frame 60**: No person (2/3) → continue recording
+5. **Frame 75**: No person (3/3) → **stop recording**
+
+<Note>
+This prevents clips from stopping when detection temporarily fails (person turns away, occlusion, etc.). You'll capture a few extra frames after exit, which is usually preferable to cutting off early.
+</Note>
+
+## Storage Considerations
+
+### Estimating Disk Usage
+
+Approximate file sizes for MP4V codec:
+
+| Resolution | FPS | Bitrate | 10 sec | 30 sec | 60 sec |
+|------------|-----|---------|--------|--------|--------|
+| 1920×1080  | 30  | ~4 Mbps | 5 MB   | 15 MB  | 30 MB  |
+| 1280×720   | 30  | ~2 Mbps | 2.5 MB | 7.5 MB | 15 MB  |
+| 640×480    | 25  | ~1 Mbps | 1.2 MB | 3.6 MB | 7.2 MB  |
+
+**Multi-stream example:**
+- 4 cameras at 1280×720, 30 fps
+- Average 20 person entries per camera per day
+- Average 15 seconds per clip
+- **Daily storage**: 4 × 20 × 7.5 MB = **600 MB/day**
+
+### Managing Storage
+
+```bash
+# Find clips older than 30 days
+find output/ -name "*.mp4" -mtime +30
+
+# Delete clips older than 30 days
+find output/ -name "*.mp4" -mtime +30 -delete
+
+# Archive clips to external storage
+rsync -av --remove-source-files output/ /mnt/archive/
+```
+
+## Advanced Configuration
+
+### Adjusting Exit Sensitivity
+
+The exit threshold is hardcoded in `stream_processor.py:77`. To customize, modify the source:
+
+```python
+# More aggressive exit (stop sooner)
+NO_PERSON_EXIT_THRESHOLD: int = 2
+
+# More conservative (longer recordings)
+NO_PERSON_EXIT_THRESHOLD: int = 5
+```
+
+### Custom Output Directory
+
+Edit `config.cfg`:
+
+```ini
+[paths]
+model_dir = model
+output_dir = /data/video-surveillance  # Custom path
+
+[detection]
+confidence_threshold = 0.5
+person_area_threshold = 1000
+frame_skip = 15
+```
+
+### Frame Skip Optimization
+
+Balance detection speed vs. CPU usage:
+
+```bash
+# Fast detection (high CPU usage)
+uv run main.py --rtsp "rtsp://camera.local" --save video --frame-skip 5
+
+# Balanced (default)
+uv run main.py --rtsp "rtsp://camera.local" --save video --frame-skip 15
+
+# Low CPU usage (slower detection)
+uv run main.py --rtsp "rtsp://camera.local" --save video --frame-skip 30
+```
+
+<Note>
+`frame-skip` only affects **detection frequency**. All frames are recorded to the video file, regardless of the skip value.
+</Note>
+
+## Monitoring Live Recording
+
+### Console Output
+
+The console shows real-time recording status:
+
+```
+[2026-03-09 14:30:22] Frame 15: 1 person(s) detected
+  Person entered frame! Entry #1
+  Started recording clip: output/person_clip_1_20260309_143022_1741528222.mp4
+[2026-03-09 14:30:25] Frame 60: 1 person(s) detected
+  Person(s) still present in frame
+[2026-03-09 14:30:45] Frame 345: No persons
+  No person detected (1/3)
+  No person detected (2/3)
+  No person detected (3/3)
+  Person(s) exited. Saved clip: output/person_clip_1_20260309_143022_1741528222.mp4
+```
+
+### Live Display
+
+Enable grid display for multiple streams:
+
+```bash
+uv run main.py --rtsp-list \
+  "rtsp://cam1.local" \
+  "rtsp://cam2.local" \
+  --save video \
+  --display
+```
+
+Press **'q'** in the window to stop all streams.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Clips stop recording too early">
+    The person may be temporarily undetected. Try:
+    
+    - Lower `--confidence` threshold
+    - Reduce `--frame-skip` for more frequent detection
+    - Increase `NO_PERSON_EXIT_THRESHOLD` in source code
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://camera.local" --save video \
+      --confidence 0.4 \
+      --frame-skip 10
+    ```
+  </Accordion>
+
+  <Accordion title="Clips are too long">
+    Recording continues until 3 consecutive non-detections. This is intentional to prevent premature cutoff. If you need shorter clips, modify `NO_PERSON_EXIT_THRESHOLD` in `stream_processor.py:77`.
+  </Accordion>
+
+  <Accordion title="Video file corruption">
+    If the program crashes during recording, the clip may be corrupted. The system releases the video writer in a `finally` block, but sudden termination (kill -9, power loss) can corrupt the file.
+    
+    **Prevention:**
+    - Use proper shutdown (Ctrl+C)
+    - Run in a container with restart policies
+    - Implement external monitoring
+  </Accordion>
+
+  <Accordion title="High disk usage">
+    Video mode uses significantly more storage than image mode. Solutions:
+    
+    - Increase `--frame-skip` to detect less frequently
+    - Increase `--area-threshold` to ignore distant persons
+    - Implement automatic cleanup scripts
+    - Use external archival storage
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://camera.local" --save video \
+      --frame-skip 30 \
+      --area-threshold 3000
+    ```
+  </Accordion>
+
+  <Accordion title="Recording never starts">
+    Check:
+    - Detection thresholds (try lowering `--confidence`)
+    - Stream resolution and quality
+    - Use `--test-image` to verify detection works
+    
+    ```bash
+    uv run main.py --test-image test.jpg --save video
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Image Mode" icon="camera" href="/examples/image-mode">
+    Capture snapshots on person entry
+  </Card>
+  <Card title="Test Image" icon="flask" href="/examples/test-image">
+    Test detection with a local image file
+  </Card>
+</CardGroup>

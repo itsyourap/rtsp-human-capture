@@ -1,0 +1,96 @@
+---
+title: Introduction
+description: Real-time person detection and capture from RTSP camera streams using YOLOv4/YOLOv3 with GPU acceleration
+---
+
+## What is RTSP Human Capture?
+
+RTSP Human Capture is a multi-stream RTSP person-detection tool built on **YOLOv4 / YOLOv3** (with an automatic HOG fallback) and **OpenCV**. When a person enters a camera frame, the tool saves an annotated JPEG snapshot or starts recording an MP4 clip. Multiple cameras run in parallel threads and can be watched in a single composited grid window.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Advanced Detection" icon="brain">
+    YOLOv4 / YOLOv3 detection with automatic fallback to OpenCV HOG when model files are absent
+  </Card>
+  <Card title="GPU Acceleration" icon="microchip">
+    CUDA GPU acceleration automatically detected and enabled; falls back to CPU gracefully
+  </Card>
+  <Card title="Multi-Stream Support" icon="video">
+    Single or multiple RTSP streams processed concurrently via threads
+  </Card>
+  <Card title="Flexible Output" icon="floppy-disk">
+    Two save modes: `image` (annotated JPEG snapshot) or `video` (MP4 clip of entire presence)
+  </Card>
+  <Card title="Live Display" icon="display">
+    Dedicated window for single streams; resizable grid window for multiple streams
+  </Card>
+  <Card title="Auto Reconnect" icon="arrows-rotate">
+    Each stream retries up to 5 times on read failure before giving up
+  </Card>
+</CardGroup>
+
+## Use Cases
+
+### Security Monitoring
+Automatically capture and record when people enter monitored areas from multiple camera feeds simultaneously.
+
+### Retail Analytics
+Track customer presence and movement patterns across multiple store locations with synchronized detection.
+
+### Smart Home
+Receive alerts and recordings when people are detected in specific zones around your property.
+
+### Event Recording
+Capture footage only when people are present, saving storage space and making review more efficient.
+
+## System Requirements
+
+### Required
+- **Python**: 3.12 or higher
+- **Package Manager**: [uv](https://github.com/astral-sh/uv) (recommended) or pip
+- **Operating System**: Linux, Windows, or macOS
+
+### Optional
+- **GPU**: NVIDIA GPU with CUDA support for hardware-accelerated inference
+- **Model Files**: YOLOv4 or YOLOv3 weights and configuration (HOG fallback available without models)
+
+<Note>
+  The tool automatically detects CUDA availability and falls back to CPU if not available. Similarly, if YOLO model files are not found, it uses OpenCV's built-in HOG person detector.
+</Note>
+
+## How It Works
+
+1. **Stream Connection**: Connects to one or more RTSP camera streams
+2. **Frame Processing**: Analyzes every Nth frame (configurable, default every 15th frame)
+3. **Person Detection**: Uses YOLOv4/YOLOv3 or HOG to detect people in frames
+4. **Capture**: When a person is detected:
+   - **Image mode**: Saves an annotated JPEG snapshot
+   - **Video mode**: Records an MP4 clip for the duration of presence
+5. **Output Organization**: Saves files to organized directories per stream
+
+## Architecture Overview
+
+The project is organized into focused modules:
+
+- `main.py` - CLI entry point and argument parsing
+- `config.py` - Configuration loader (AppConfig dataclass) 
+- `person_detector.py` - YOLOv4 / YOLOv3 / HOG inference (thread-safe)
+- `stream_processor.py` - Per-stream loop, save logic, and reconnect handling
+- `multi_stream_manager.py` - Thread orchestration for multiple streams
+- `display_manager.py` - Grid window composition and display thread
+
+<Note>
+  All detection methods are thread-safe, allowing multiple streams to share a single detector instance efficiently.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Set up Python, uv, and install dependencies
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get your first detection working in 5 minutes
+  </Card>
+</CardGroup>

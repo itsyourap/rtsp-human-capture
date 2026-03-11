@@ -1,0 +1,329 @@
+---
+title: Configuration File
+description: Complete reference for config.cfg INI file format and validation rules
+---
+
+## Overview
+
+RTSP Human Capture uses an INI-style configuration file (default: `config.cfg`) to specify paths, detection parameters, and processing settings. Command-line flags override individual config values when provided.
+
+## File Format
+
+The configuration file uses standard INI syntax with sections denoted by `[section_name]` and key-value pairs:
+
+```ini
+[paths]
+model_dir = model
+output_dir = output
+
+[detection]
+confidence_threshold = 0.5
+person_area_threshold = 1000
+frame_skip = 15
+```
+
+## Configuration Sections
+
+### [paths]
+
+File system paths for model files and output directories.
+
+<ParamField path="model_dir" type="string" default="model">
+  Directory containing YOLO model files (`yolov4.weights`, `yolov4.cfg`, `coco.names`).
+  
+  **Required files:**
+  - `yolov4.weights` or `yolov3.weights` - Model weights
+  - `yolov4.cfg` or `yolov3.cfg` - Model configuration
+  - `coco.names` - Class labels (80 COCO classes)
+  
+  **Download sources:**
+  - [YOLOv4 weights](https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.weights)
+  - [YOLOv4 config](https://github.com/AlexeyAB/darknet/blob/master/cfg/yolov4.cfg)
+  - [COCO names](https://github.com/AlexeyAB/darknet/blob/master/data/coco.names)
+  
+  **Fallback behavior:** If YOLO files are not found, the system automatically falls back to OpenCV's built-in HOG (Histogram of Oriented Gradients) person detector.
+  
+  **Example:**
+  ```ini
+  [paths]
+  model_dir = /opt/models/yolo
+  ```
+</ParamField>
+
+<ParamField path="output_dir" type="string" default="output">
+  Base directory where captured images or video clips are saved.
+  
+  **Directory structure:**
+  - **Single stream:** Files saved directly to `output_dir/`
+  - **Multiple streams:** Files saved to `output_dir/stream_{id}/`
+  
+  **Filename formats:**
+  - Images: `person_entry_{count}_{timestamp}_{unix_time}.jpg`
+  - Videos: `person_clip_{count}_{timestamp}_{unix_time}.mp4`
+  
+  **Example:**
+  ```ini
+  [paths]
+  output_dir = /var/captures/persons
+  ```
+  
+  **Note:** Directories are created automatically if they don't exist.
+</ParamField>
+
+### [detection]
+
+Person detection parameters and processing settings.
+
+<ParamField path="confidence_threshold" type="float" default="0.5">
+  Minimum confidence score (0.0 to 1.0) for a detection to be considered valid.
+  
+  **Valid range:** Must be between 0.0 (exclusive) and 1.0 (exclusive).
+  
+  **Validation:** Raises `ValueError` if outside valid range.
+  
+  **Behavior:**
+  - Lower values (0.3-0.5): More detections, more false positives
+  - Medium values (0.5-0.7): Balanced accuracy
+  - Higher values (0.7-0.9): Fewer false positives, may miss some people
+  
+  **Example:**
+  ```ini
+  [detection]
+  confidence_threshold = 0.6
+  ```
+  
+  **Override:** Use `--confidence` CLI flag to override this value.
+</ParamField>
+
+<ParamField path="person_area_threshold" type="integer" default="1000">
+  Minimum bounding box area in pixels (width × height) for a detection to be considered valid.
+  
+  **Valid range:** Must be >= 0.
+  
+  **Validation:** Raises `ValueError` if negative.
+  
+  **Purpose:** Filters out very small detections which are often:
+  - Distant persons (too far to be useful)
+  - Partial detections
+  - False positives
+  
+  **Calculation example:**
+  - A 50×50 pixel box = 2,500 pixels (passes default threshold)
+  - A 30×30 pixel box = 900 pixels (rejected by default threshold)
+  
+  **Recommended values:**
+  - Close-range cameras: 500-1000 pixels
+  - Medium-range cameras: 1000-2000 pixels
+  - Long-range cameras: 2000-5000 pixels
+  
+  **Example:**
+  ```ini
+  [detection]
+  person_area_threshold = 1500
+  ```
+  
+  **Override:** Use `--area-threshold` CLI flag to override this value.
+</ParamField>
+
+<ParamField path="frame_skip" type="integer" default="15">
+  Process every Nth frame from the video stream. Frames in between are still captured for video recording but not analyzed for person detection.
+  
+  **Valid range:** Must be >= 1.
+  
+  **Validation:** Raises `ValueError` if less than 1.
+  
+  **Performance impact:**
+  - `frame_skip = 1`: Analyze every frame (slowest, highest accuracy)
+  - `frame_skip = 15`: ~2 detections/second on 30fps stream (recommended)
+  - `frame_skip = 30`: ~1 detection/second on 30fps stream (faster)
+  - `frame_skip = 60`: ~0.5 detections/second on 30fps stream (fastest)
+  
+  **Additional throttling:** Detection is also limited to run at most once every 0.5 seconds (see `stream_processor.py:113` and `stream_processor.py:303`).
+  
+  **Example:**
+  ```ini
+  [detection]
+  frame_skip = 20
+  ```
+  
+  **Override:** Use `--frame-skip` CLI flag to override this value.
+</ParamField>
+
+## Complete Configuration Example
+
+```ini
+# RTSP Human Capture Configuration
+# This file controls model paths, output locations, and detection parameters
+
+[paths]
+# Directory containing YOLO model files
+model_dir = model
+
+# Directory where person captures are saved
+output_dir = output
+
+[detection]
+# Minimum confidence for person detection (0.0 - 1.0)
+# Higher = fewer false positives, but may miss some people
+confidence_threshold = 0.5
+
+# Minimum bounding box area in pixels
+# Filters out very small/distant detections
+person_area_threshold = 1000
+
+# Process every Nth frame (higher = faster but may miss brief appearances)
+# At 30fps, frame_skip=15 means ~2 detections per second
+frame_skip = 15
+```
+
+## Loading Configuration
+
+Configuration is loaded using the `load_config()` function from the `config` module:
+
+```python
+from config import load_config, DEFAULT_CONFIG_PATH
+
+# Load default config.cfg from current directory
+cfg = load_config()
+
+# Load custom config file
+cfg = load_config("production.cfg")
+
+# Access configuration values
+print(f"Model directory: {cfg.model_dir}")
+print(f"Output directory: {cfg.output_dir}")
+print(f"Confidence threshold: {cfg.confidence_threshold}")
+```
+
+## Configuration Object
+
+The loaded configuration is returned as an `AppConfig` dataclass:
+
+<ResponseField name="AppConfig" type="dataclass">
+  <Expandable title="fields">
+    <ResponseField name="model_dir" type="str">
+      Path to model directory (from `[paths] model_dir`)
+    </ResponseField>
+    <ResponseField name="output_dir" type="str">
+      Path to output directory (from `[paths] output_dir`)
+    </ResponseField>
+    <ResponseField name="confidence_threshold" type="float">
+      Confidence threshold (from `[detection] confidence_threshold`)
+    </ResponseField>
+    <ResponseField name="person_area_threshold" type="int">
+      Minimum person area (from `[detection] person_area_threshold`)
+    </ResponseField>
+    <ResponseField name="frame_skip" type="int">
+      Frame skip interval (from `[detection] frame_skip`)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Validation Rules
+
+The configuration loader validates all values and raises exceptions for invalid data:
+
+### Confidence Threshold Validation
+
+```python
+if not 0.0 < confidence_threshold < 1.0:
+    raise ValueError(
+        f"confidence_threshold must be between 0 and 1, got {confidence_threshold}"
+    )
+```
+
+**Valid:** `0.1`, `0.5`, `0.9`  
+**Invalid:** `0.0`, `1.0`, `1.5`, `-0.1`
+
+### Person Area Threshold Validation
+
+```python
+if person_area_threshold < 0:
+    raise ValueError(
+        f"person_area_threshold must be >= 0, got {person_area_threshold}"
+    )
+```
+
+**Valid:** `0`, `1000`, `5000`  
+**Invalid:** `-1`, `-1000`
+
+### Frame Skip Validation
+
+```python
+if frame_skip < 1:
+    raise ValueError(f"frame_skip must be >= 1, got {frame_skip}")
+```
+
+**Valid:** `1`, `15`, `30`  
+**Invalid:** `0`, `-1`
+
+## Error Handling
+
+### Missing Configuration File
+
+If the specified config file doesn't exist:
+
+```python
+raise FileNotFoundError(
+    f"Config file not found: '{path}'. "
+    f"Create one or copy the default config.cfg."
+)
+```
+
+**CLI output:**
+```
+Error: Config file not found: 'config.cfg'. Create one or copy the default config.cfg.
+```
+
+### Invalid Configuration Values
+
+If validation fails:
+
+```python
+raise ValueError("confidence_threshold must be between 0 and 1, got 1.5")
+```
+
+**CLI output:**
+```
+Config error: confidence_threshold must be between 0 and 1, got 1.5
+```
+
+## Default Fallback Values
+
+If a key is missing from the config file, the system uses these defaults:
+
+| Section | Key | Default Value |
+|---------|-----|---------------|
+| `[paths]` | `model_dir` | `"model"` |
+| `[paths]` | `output_dir` | `"person"` |
+| `[detection]` | `confidence_threshold` | `0.5` |
+| `[detection]` | `person_area_threshold` | `1000` |
+| `[detection]` | `frame_skip` | `15` |
+
+This means a minimal config file can contain just the values you want to change:
+
+```ini
+[detection]
+confidence_threshold = 0.7
+```
+
+All other values will use defaults.
+
+## Override Hierarchy
+
+Configuration values can be overridden in this order (highest priority first):
+
+1. **CLI flags** - `--confidence`, `--area-threshold`, `--frame-skip`
+2. **Config file** - Values from `config.cfg` or custom path
+3. **Default values** - Hardcoded fallbacks in `config.py`
+
+**Example:**
+```bash
+# Config file has confidence_threshold = 0.5
+# This command uses 0.7 instead
+python main.py --config custom.cfg --rtsp 'rtsp://cam.com' --confidence 0.7 --save image
+```
+
+## Implementation Reference
+
+Configuration loading is implemented in `config.py:30-77`. The `load_config()` function uses Python's `configparser` module with fallback values for all keys.

@@ -1,0 +1,355 @@
+---
+title: Quick Start
+description: Get your first person detection working in 5 minutes
+---
+
+This guide will help you run your first person detection in under 5 minutes.
+
+<Note>
+  Make sure you've completed the [installation](/installation) before proceeding.
+</Note>
+
+## Test with a Local Image
+
+The fastest way to verify your setup is to test with a local image.
+
+<Steps>
+  <Step title="Find or download a test image">
+    Use any JPEG image containing people. For testing, you can download a sample image:
+    
+    ```bash
+    wget https://images.unsplash.com/photo-1511632765486-a01980e01a18 -O test_photo.jpg
+    ```
+    
+    Or use any photo from your computer.
+  </Step>
+  
+  <Step title="Run detection on the image">
+    ```bash
+    uv run main.py --test-image test_photo.jpg --save image
+    ```
+    
+    You'll see output like:
+    
+    ```
+    Loading person detection model...
+    CUDA available, using GPU for inference
+    Model loaded: YOLOv4
+    Confidence threshold: 0.5
+    Person area threshold: 1000 pixels
+    Testing with image: test_photo.jpg
+    Persons detected: 4
+    Bounding boxes: [(1772, 1017, 738, 2305, 0.9470878839492798), ...]
+    Annotated result saved to: test_result_1741528222.jpg
+    ```
+  </Step>
+  
+  <Step title="View the annotated result">
+    Open the generated `test_result_*.jpg` file to see detected people highlighted with bounding boxes and confidence scores.
+    
+    <Note>
+      The output filename includes a timestamp for uniqueness.
+    </Note>
+  </Step>
+</Steps>
+
+## Process a Single RTSP Stream
+
+Now let's process a live RTSP camera stream.
+
+<Steps>
+  <Step title="Get your RTSP URL">
+    You'll need an RTSP camera URL in one of these formats:
+    
+    ```
+    rtsp://camera_ip:554/stream
+    rtsp://username:password@camera_ip:554/stream
+    rtsp://192.168.1.100:8554/live
+    ```
+    
+    <Warning>
+      Make sure your camera is accessible from your network and the RTSP port (usually 554) is open.
+    </Warning>
+  </Step>
+  
+  <Step title="Run detection with display">
+    Process the stream and show a live display window:
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://camera1.local/stream" --save image
+    ```
+    
+    The tool will:
+    - Connect to the stream
+    - Display live video with detection overlays
+    - Save annotated snapshots when people are detected
+    
+    ```
+    Config loaded from: config.cfg
+      model_dir   = model
+      output_dir  = output
+    Loading person detection model...
+    CUDA available, using GPU for inference
+    Model loaded: YOLOv4
+    Confidence threshold: 0.5
+    Person area threshold: 1000 pixels
+    Starting RTSP stream processor...
+    Connected to: rtsp://camera1.local/stream
+    Person detected! Count: 1
+    Saved snapshot: output/person_entry_1_20260309_143022_1741528222.jpg
+    ```
+  </Step>
+  
+  <Step title="Run headless (no display)">
+    For servers or background processing, disable the display:
+    
+    ```bash
+    uv run main.py --rtsp "rtsp://camera1.local/stream" --save video --no-display
+    ```
+    
+    This mode is ideal for:
+    - Headless servers
+    - Background monitoring
+    - Systems without display capabilities
+  </Step>
+</Steps>
+
+## Record Video Clips
+
+Instead of snapshots, record MP4 video clips of detected presence.
+
+```bash
+uv run main.py --rtsp "rtsp://camera1.local/stream" --save video
+```
+
+When a person is detected:
+- Recording starts immediately
+- Continues while person remains in frame
+- Stops when person leaves
+- Saves as MP4 file with timestamp
+
+**Output example:**
+```
+output/person_clip_1_20260309_143022_1741528222.mp4
+```
+
+## Process Multiple Streams
+
+Monitor multiple cameras simultaneously with a grid display.
+
+<Steps>
+  <Step title="Create a streams file">
+    Create `streams.txt` with one RTSP URL per line:
+    
+    ```text streams.txt
+    rtsp://camera1.local/stream
+    rtsp://camera2.local/stream
+    rtsp://192.168.1.100:554/live
+    # This is a comment - lines starting with # are ignored
+    rtsp://camera4.local/stream
+    ```
+  </Step>
+  
+  <Step title="Process all streams">
+    ```bash
+    uv run main.py --rtsp-file streams.txt --save image --display
+    ```
+    
+    You'll see:
+    - A grid window showing all camera feeds
+    - Each stream processed in a separate thread
+    - Individual output folders per stream
+  </Step>
+  
+  <Step title="Or pass URLs directly">
+    ```bash
+    uv run main.py --rtsp-list "rtsp://cam1.local" "rtsp://cam2.local" --save video --display
+    ```
+  </Step>
+</Steps>
+
+**Multi-stream output structure:**
+```
+output/
+├── stream_1/
+│   ├── person_entry_1_20260309_143022_1741528222.jpg
+│   └── person_entry_2_20260309_143045_1741528245.jpg
+├── stream_2/
+│   ├── person_entry_1_20260309_143030_1741528230.jpg
+│   └── person_clip_1_20260309_143100_1741528260.mp4
+└── stream_3/
+    └── person_entry_1_20260309_143022_1741528222.jpg
+```
+
+## Customize Detection Settings
+
+Override default configuration values at runtime.
+
+### Adjust Confidence Threshold
+
+Control detection sensitivity (0.0 to 1.0):
+
+```bash
+uv run main.py --rtsp "rtsp://camera1.local/stream" --save image --confidence 0.7
+```
+
+- **Lower values (0.3-0.5)**: More detections, more false positives
+- **Higher values (0.6-0.9)**: Fewer false positives, may miss some people
+- **Default**: 0.5
+
+### Set Minimum Person Size
+
+Filter out small detections (in pixels):
+
+```bash
+uv run main.py --rtsp "rtsp://camera1.local/stream" --save image --area-threshold 2000
+```
+
+- **Lower values (500-1000)**: Detect people further away
+- **Higher values (2000-5000)**: Only detect people close to camera
+- **Default**: 1000 pixels
+
+### Adjust Frame Skip Rate
+
+Process every Nth frame for performance:
+
+```bash
+uv run main.py --rtsp "rtsp://camera1.local/stream" --save video --frame-skip 10
+```
+
+- **Lower values (5-10)**: More responsive, higher CPU/GPU usage
+- **Higher values (20-30)**: Lower resource usage, may miss quick movements
+- **Default**: 15 (≈2 fps analysis on 30 fps stream)
+
+### Combine Multiple Overrides
+
+```bash
+uv run main.py --rtsp "rtsp://camera1.local/stream" --save video \
+  --confidence 0.6 \
+  --area-threshold 2000 \
+  --frame-skip 10
+```
+
+## Configuration File
+
+For persistent settings, edit `config.cfg`:
+
+<CodeGroup>
+```ini config.cfg
+[paths]
+# Directory containing model files
+model_dir = model
+
+# Root directory for saved outputs
+output_dir = output
+
+[detection]
+confidence_threshold = 0.5   # 0.0 – 1.0
+person_area_threshold = 1000  # minimum bounding-box area in pixels
+frame_skip = 15               # analyse every Nth frame
+```
+
+```bash Usage with custom config
+uv run main.py --config custom.cfg --rtsp "rtsp://camera1.local/stream" --save image
+```
+</CodeGroup>
+
+<Note>
+  CLI flags always override config file values, allowing per-run customization without editing the file.
+</Note>
+
+## Expected Output Behavior
+
+### Image Mode (`--save image`)
+
+- Captures a single annotated JPEG when a person **first enters** the frame
+- One snapshot per entry event
+- Fast processing, minimal storage
+- Ideal for: alerts, logging entries, motion detection
+
+### Video Mode (`--save video`)
+
+- Records an MP4 clip for the **entire duration** a person is present
+- Starts recording on detection
+- Continues while person remains in frame
+- Stops and saves when person leaves
+- Ideal for: security footage, event recording, detailed review
+
+## Understanding Detection Output
+
+When a person is detected, you'll see console output like:
+
+```
+Person detected! Count: 2
+Saved snapshot: output/person_entry_1_20260309_143022_1741528222.jpg
+```
+
+**Bounding box format:** `(x, y, w, h, confidence)`
+- `x, y`: Top-left corner coordinates
+- `w, h`: Width and height of bounding box
+- `confidence`: Detection confidence (0.0 to 1.0)
+
+## Troubleshooting
+
+### "Could not connect to RTSP stream"
+
+- Verify the RTSP URL is correct
+- Check network connectivity: `ping camera_ip`
+- Test with VLC: `vlc rtsp://camera_ip/stream`
+- Ensure firewall allows RTSP (port 554)
+
+### "No persons detected" (but people are visible)
+
+- Lower confidence threshold: `--confidence 0.3`
+- Reduce area threshold: `--area-threshold 500`
+- Check if people are too far from camera
+- Verify model files are loaded (check console output)
+
+### High CPU/GPU Usage
+
+- Increase frame skip: `--frame-skip 30`
+- Reduce stream resolution at camera source
+- Process fewer streams simultaneously
+- Use video mode instead of image mode if you're getting too many snapshots
+
+### Stream Keeps Disconnecting
+
+The tool automatically reconnects up to 5 times per stream. If disconnections persist:
+
+- Check network stability
+- Verify camera RTSP settings
+- Look for camera firmware updates
+- Review camera logs for errors
+
+## All Command-Line Options
+
+| Flag | Description |
+| --- | --- |
+| `--config PATH` | Config file to load (default: `config.cfg`) |
+| `--rtsp URL` | Single RTSP stream URL |
+| `--rtsp-list URL ...` | Multiple RTSP stream URLs |
+| `--rtsp-file PATH` | Text file with RTSP URLs (one per line) |
+| `--test-image PATH` | Test with local image file |
+| `--save image\|video` | **Required.** Save mode: snapshots or MP4 clips |
+| `--display` | Show live grid window (multi-stream) |
+| `--no-display` | Suppress display window (single stream) |
+| `--confidence FLOAT` | Detection confidence threshold (overrides config) |
+| `--area-threshold INT` | Minimum bounding-box area in pixels (overrides config) |
+| `--frame-skip INT` | Analyze every Nth frame (overrides config) |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Learn about advanced configuration options and tuning
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/cli-commands">
+    Explore the CLI commands and Python API
+  </Card>
+  <Card title="Multi-Stream Setup" icon="grid" href="/guides/multi-stream">
+    Advanced multi-camera deployment strategies
+  </Card>
+  <Card title="Model Setup" icon="brain" href="/guides/model-setup">
+    Download and configure detection models
+  </Card>
+</CardGroup>

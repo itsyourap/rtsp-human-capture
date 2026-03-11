@@ -1,0 +1,84 @@
+---
+title: "RTSP Human Capture"
+description: "Detect and capture people from RTSP camera streams using YOLOv4/YOLOv3 with GPU acceleration"
+---
+
+## Welcome
+
+RTSP Human Capture is a powerful CLI tool for real-time person detection and capture from RTSP camera streams. Built on YOLOv4/YOLOv3 with automatic HOG fallback, it supports GPU acceleration, multi-stream concurrent processing, and configurable snapshot or video recording.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running in minutes with our quickstart guide
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Install dependencies and set up your environment
+  </Card>
+  <Card title="Model Setup" icon="brain" href="/guides/model-setup">
+    Download and configure YOLOv4/YOLOv3 models
+  </Card>
+  <Card title="CLI Commands" icon="terminal" href="/api/cli-commands">
+    Explore all available commands and options
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Advanced Detection" icon="user-check">
+    YOLOv4/YOLOv3 person detection with automatic HOG fallback when model files are unavailable
+  </Card>
+  <Card title="GPU Acceleration" icon="bolt">
+    CUDA GPU acceleration automatically detected and enabled for fast inference
+  </Card>
+  <Card title="Multi-Stream Support" icon="video">
+    Process multiple RTSP streams concurrently with threaded architecture
+  </Card>
+  <Card title="Flexible Recording" icon="camera">
+    Save annotated snapshots (JPEG) or video clips (MP4) when people are detected
+  </Card>
+  <Card title="Live Display" icon="tv">
+    Real-time grid display for monitoring multiple camera streams simultaneously
+  </Card>
+  <Card title="Auto Reconnect" icon="arrows-rotate">
+    Automatic reconnection with retry logic for reliable long-term operation
+  </Card>
+</CardGroup>
+
+## Use Cases
+
+<AccordionGroup>
+  <Accordion title="Security and Surveillance" icon="shield-halved">
+    Monitor multiple camera feeds for security purposes, automatically capturing snapshots or video clips when people enter the frame. Perfect for building security, perimeter monitoring, and access control.
+  </Accordion>
+  <Accordion title="Retail Analytics" icon="store">
+    Track customer foot traffic and movement patterns in retail environments. Capture data on when and where people appear in your store for business intelligence.
+  </Accordion>
+  <Accordion title="Smart Home Automation" icon="house">
+    Integrate with home automation systems to trigger actions based on person detection from security cameras. Record events when motion is detected.
+  </Accordion>
+  <Accordion title="Research and Development" icon="flask">
+    Use as a foundation for computer vision research projects involving person detection, tracking, and analysis from video streams.
+  </Accordion>
+</AccordionGroup>
+
+## Get Started
+
+<Steps>
+  <Step title="Install Dependencies">
+    Install Python 3.12+ and uv package manager, then sync project dependencies
+  </Step>
+  <Step title="Download Models">
+    Download YOLOv4 weights, config, and COCO class names from the official sources
+  </Step>
+  <Step title="Configure Settings">
+    Edit config.cfg to set detection thresholds and output directories
+  </Step>
+  <Step title="Run Detection">
+    Start processing your RTSP streams with a single command
+  </Step>
+</Steps>
+
+<Card title="Ready to begin?" icon="arrow-right" href="/installation" horizontal>
+  Follow the installation guide to get started
+</Card>

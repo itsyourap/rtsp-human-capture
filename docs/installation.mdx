@@ -1,0 +1,252 @@
+---
+title: Installation
+description: Install RTSP Human Capture with uv package manager and optional CUDA support
+---
+
+## Prerequisites
+
+### Python 3.12+
+
+RTSP Human Capture requires Python 3.12 or higher. Check your Python version:
+
+```bash
+python --version
+```
+
+If you need to install or upgrade Python, visit [python.org](https://www.python.org/downloads/).
+
+### uv Package Manager
+
+This project uses [uv](https://github.com/astral-sh/uv) for fast, reliable dependency management.
+
+<CodeGroup>
+```bash macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+```bash Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+```bash Using pip
+pip install uv
+```
+</CodeGroup>
+
+Verify the installation:
+
+```bash
+uv --version
+```
+
+## Clone the Repository
+
+Clone the RTSP Human Capture repository:
+
+```bash
+git clone https://github.com/itsyourap/rtsp-human-capture
+cd rtsp-human-capture
+```
+
+## Install Dependencies
+
+Install all required dependencies using uv:
+
+```bash
+uv sync
+```
+
+This command reads `pyproject.toml` and installs:
+- `numpy>=2.4.3`
+- `opencv-contrib-python` (from local CUDA wheels if available)
+
+<Note>
+  The `uv sync` command creates a virtual environment automatically and installs all dependencies in one step.
+</Note>
+
+### Fallback for CPU-Only Systems
+
+If `uv sync` fails due to missing OpenCV CUDA wheels, install the CPU-only version:
+
+```bash
+uv pip install opencv-python
+```
+
+<Warning>
+  The CPU-only version will work but won't benefit from GPU acceleration. For best performance, use the CUDA-enabled wheels.
+</Warning>
+
+## Optional: CUDA GPU Acceleration
+
+For hardware-accelerated inference on NVIDIA GPUs:
+
+### 1. Verify CUDA Installation
+
+Check if CUDA is available on your system:
+
+```bash
+nvidia-smi
+```
+
+If this command fails, install [NVIDIA CUDA Toolkit](https://developer.nvidia.com/cuda-downloads).
+
+### 2. Install OpenCV CUDA Wheels
+
+Download the appropriate CUDA-enabled OpenCV wheel for your platform:
+
+1. Visit [opencv-python-cuda-wheels releases](https://github.com/cudawarped/opencv-python-cuda-wheels/releases/latest)
+2. Download the `opencv_contrib_python-*.whl` file matching your:
+   - Python version (e.g., `cp312` for Python 3.12)
+   - Platform (e.g., `win_amd64`, `linux_x86_64`)
+   - CUDA version (e.g., `cuda12x`)
+
+3. Create a `deps/` directory and place the wheel file there:
+
+```bash
+mkdir -p deps
+# Move your downloaded wheel to deps/
+mv opencv_contrib_python-*.whl deps/
+```
+
+4. Update `pyproject.toml` to reference your specific wheel:
+
+```toml
+[tool.uv.sources]
+opencv-contrib-python = { path = "deps/opencv_contrib_python-4.13.0.90-cp312-cp312-linux_x86_64.whl" }
+```
+
+5. Reinstall dependencies:
+
+```bash
+uv sync --reinstall
+```
+
+<Note>
+  The application will automatically detect CUDA at runtime and use GPU acceleration if available. No code changes needed!
+</Note>
+
+## Download Model Files
+
+For YOLOv4 detection (recommended), download these files:
+
+<Steps>
+  <Step title="Create model directory">
+    ```bash
+    mkdir -p model
+    ```
+  </Step>
+  
+  <Step title="Download YOLOv4 weights">
+    ```bash
+    cd model
+    wget https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.weights
+    ```
+  </Step>
+  
+  <Step title="Download YOLOv4 config">
+    ```bash
+    wget https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4.cfg
+    ```
+  </Step>
+  
+  <Step title="Download COCO class names">
+    ```bash
+    wget https://raw.githubusercontent.com/AlexeyAB/darknet/master/data/coco.names
+    cd ..
+    ```
+  </Step>
+</Steps>
+
+### Model Files Reference
+
+| File | Size | Description |
+| --- | --- | --- |
+| `yolov4.weights` | ~245 MB | Pre-trained YOLOv4 model weights |
+| `yolov4.cfg` | ~12 KB | YOLOv4 network architecture configuration |
+| `coco.names` | ~1 KB | COCO dataset class labels (80 classes) |
+
+<Note>
+  **Model files are optional!** If not provided, the tool automatically falls back to OpenCV's built-in HOG person detector. YOLOv3 files are also supported as a fallback before HOG.
+</Note>
+
+## Verify Installation
+
+Verify that everything is installed correctly:
+
+```bash
+uv run main.py --help
+```
+
+You should see the command-line help output:
+
+```
+usage: main.py [-h] [--config CONFIG] [--rtsp RTSP] [--rtsp-list RTSP_LIST [RTSP_LIST ...]]
+               [--rtsp-file RTSP_FILE] [--test-image TEST_IMAGE] [--confidence CONFIDENCE]
+               [--area-threshold AREA_THRESHOLD] [--frame-skip FRAME_SKIP] [--no-display]
+               [--display] --save {image,video}
+
+RTSP Human Capture - Supports multiple streams, configurable thresholds, and display options.
+```
+
+## Project Structure
+
+After installation, your directory should look like this:
+
+```text
+rtsp-human-capture/
+├── main.py                 # CLI entry point
+├── config.py               # Config loader
+├── config.cfg              # Default configuration
+├── person_detector.py      # Detection engine
+├── display_manager.py      # Display handling
+├── stream_processor.py     # Stream processing
+├── multi_stream_manager.py # Multi-stream orchestration
+├── pyproject.toml          # Project dependencies
+├── uv.lock                 # Dependency lock file
+├── model/                  # Model files (after download)
+│   ├── yolov4.weights
+│   ├── yolov4.cfg
+│   └── coco.names
+├── deps/                   # Optional CUDA wheels
+│   └── opencv_contrib_python-*.whl
+└── output/                 # Generated captures (created on first run)
+```
+
+## Troubleshooting
+
+### CUDA Not Detected
+
+If you have a NVIDIA GPU but CUDA is not detected:
+
+1. Verify NVIDIA drivers: `nvidia-smi`
+2. Check CUDA installation: `nvcc --version`
+3. Ensure OpenCV CUDA wheels are installed (not the CPU-only version)
+4. The application will print "CUDA available, using GPU" or "CUDA not available, using CPU" at startup
+
+### Import Errors
+
+If you see `ModuleNotFoundError`:
+
+```bash
+# Reinstall dependencies
+uv sync --reinstall
+
+# Or activate the virtual environment manually
+source .venv/bin/activate  # Linux/macOS
+.venv\Scripts\activate     # Windows
+```
+
+### Model Loading Errors
+
+If model files fail to load:
+
+1. Verify files exist in the `model/` directory
+2. Check file permissions: `ls -la model/`
+3. Re-download corrupted files
+4. The tool will automatically fall back to HOG detection
+
+## Next Steps
+
+<Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+  Get your first detection working in 5 minutes with a test image and RTSP stream
+</Card>

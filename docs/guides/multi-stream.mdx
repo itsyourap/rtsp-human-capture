@@ -1,0 +1,772 @@
+---
+title: 'Multi-Stream Processing'
+description: 'Process multiple RTSP streams simultaneously with parallel threading and grid display'
+icon: 'grid'
+---
+
+## Overview
+
+Multi-stream mode allows you to monitor multiple RTSP cameras simultaneously. Each stream:
+
+- Runs in its own dedicated thread
+- Has independent person detection
+- Saves to a separate output directory
+- Can be viewed together in a grid display
+
+<Note>
+Multi-stream mode is designed for 2-16 cameras. For larger deployments, consider running multiple instances with different camera groups.
+</Note>
+
+## Basic Usage
+
+### Two Methods for Specifying Streams
+
+<Tabs>
+  <Tab title="Direct URL List">
+    Pass URLs directly as command arguments:
+    
+    ```bash
+    python main.py --rtsp-list \
+      "rtsp://camera1.local/stream" \
+      "rtsp://camera2.local/stream" \
+      "rtsp://camera3.local/stream" \
+      --save video --display
+    ```
+    
+    <Tip>
+    Use quotes around each URL, especially if they contain special characters.
+    </Tip>
+  </Tab>
+  
+  <Tab title="URL File">
+    Store URLs in a text file (one per line):
+    
+    ```text streams.txt
+    rtsp://camera1.local/stream
+    rtsp://camera2.local/stream
+    rtsp://camera3.local/stream
+    rtsp://camera4.local/stream
+    # Comments start with #
+    rtsp://camera5.local/stream
+    ```
+    
+    Then reference the file:
+    
+    ```bash
+    python main.py --rtsp-file streams.txt --save video --display
+    ```
+    
+    <Tip>
+    Recommended for managing many cameras. Easier to edit and version control.
+    </Tip>
+  </Tab>
+</Tabs>
+
+## Command Options
+
+<ParamField path="--rtsp-list" type="list">
+  One or more RTSP stream URLs separated by spaces
+</ParamField>
+
+<ParamField path="--rtsp-file" type="string">
+  Path to text file containing RTSP URLs (one per line)
+</ParamField>
+
+<ParamField path="--save" type="choice" required>
+  Save mode: `image` for snapshots or `video` for clips
+</ParamField>
+
+<ParamField path="--display" type="flag">
+  Enable grid display window showing all streams
+</ParamField>
+
+## RTSP URL File Format
+
+Create a text file with one RTSP URL per line:
+
+```text rtsp_streams.txt
+# Office cameras
+rtsp://192.168.1.100/stream
+rtsp://192.168.1.101/stream
+
+# Warehouse cameras
+rtsp://192.168.1.200/stream
+rtsp://192.168.1.201/stream
+rtsp://192.168.1.202/stream
+
+# This camera is offline, skip it
+# rtsp://192.168.1.203/stream
+
+# Parking lot cameras
+rtsp://192.168.1.150/stream
+rtsp://192.168.1.151/stream
+```
+
+**File parsing** (`main.py:119-124`):
+
+```python
+try:
+    with open(args.rtsp_file, "r") as f:
+        rtsp_urls = [line.strip() for line in f if line.strip()
+                     and not line.startswith("#")]
+    print(f"Loaded {len(rtsp_urls)} RTSP streams from {args.rtsp_file}")
+except FileNotFoundError:
+    print(f"Error: File {args.rtsp_file} not found")
+```
+
+<Note>
+**File format rules:**
+- One URL per line
+- Blank lines are ignored
+- Lines starting with `#` are comments
+- Leading/trailing whitespace is trimmed
+</Note>
+
+## Grid Display
+
+When `--display` is enabled, all streams appear in a single composited window.
+
+### Enable Grid Display
+
+```bash
+python main.py --rtsp-list \
+  "rtsp://cam1.local" \
+  "rtsp://cam2.local" \
+  "rtsp://cam3.local" \
+  "rtsp://cam4.local" \
+  --save image --display
+```
+
+### Grid Layout
+
+Streams are automatically arranged in a grid:
+
+| Streams | Grid Layout | Example |
+|---------|-------------|----------|
+| 1 | 1×1 | Single full window |
+| 2-4 | 2×2 | Four quadrants |
+| 5-9 | 3×3 | Nine tiles |
+| 10-16 | 4×4 | Sixteen tiles |
+
+**Grid examples:**
+
+<Tabs>
+  <Tab title="2 Streams (2x2)">
+    ```text
+    +-------------+-------------+
+    |             |             |
+    |  Stream 1   |  Stream 2   |
+    |             |             |
+    +-------------+-------------+
+    |             |             |
+    |   (empty)   |   (empty)   |
+    |             |             |
+    +-------------+-------------+
+    ```
+  </Tab>
+  
+  <Tab title="4 Streams (2x2)">
+    ```text
+    +-------------+-------------+
+    |             |             |
+    |  Stream 1   |  Stream 2   |
+    |             |             |
+    +-------------+-------------+
+    |             |             |
+    |  Stream 3   |  Stream 4   |
+    |             |             |
+    +-------------+-------------+
+    ```
+  </Tab>
+  
+  <Tab title="6 Streams (3x3)">
+    ```text
+    +---------+---------+---------+
+    |         |         |         |
+    | Stream1 | Stream2 | Stream3 |
+    +---------+---------+---------+
+    |         |         |         |
+    | Stream4 | Stream5 | Stream6 |
+    +---------+---------+---------+
+    |         |         |         |
+    | (empty) | (empty) | (empty) |
+    +---------+---------+---------+
+    ```
+  </Tab>
+</Tabs>
+
+**Grid features:**
+- Each stream shows person count and entry counter
+- Green bounding boxes around detected persons
+- Confidence scores displayed
+- Streams update independently
+- Press 'q' to quit
+
+### Without Display (Headless)
+
+Omit `--display` to run without GUI (headless servers):
+
+```bash
+python main.py --rtsp-file streams.txt --save video
+```
+
+**Behavior:**
+- No display window
+- Lower resource usage
+- Still processes all streams
+- Saves output files normally
+- Logs to console
+
+## Threading Architecture
+
+Each stream processes independently in its own thread.
+
+### Thread Creation
+
+From `multi_stream_manager.py:71-80`:
+
+```python
+# Launch one worker thread per stream
+threads: List[threading.Thread] = []
+for stream_id, rtsp_url in stream_list:
+    t = threading.Thread(
+        target=self._processor.process_single_stream,
+        args=(stream_id, rtsp_url, frame_skip, save_mode, display_manager),
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+    print(f"Started thread for stream {stream_id}: {rtsp_url}")
+```
+
+**Key characteristics:**
+
+<CardGroup cols={2}>
+  <Card title="Daemon Threads" icon="ghost">
+    Threads are daemon threads - they terminate when main program exits.
+  </Card>
+  
+  <Card title="Independent Processing" icon="arrows-split-up-and-left">
+    Each stream has its own connection, detection loop, and reconnection logic.
+  </Card>
+  
+  <Card title="Shared Detector" icon="share-nodes">
+    All threads share a single `PersonDetector` instance with thread-safe inference.
+  </Card>
+  
+  <Card title="Separate Outputs" icon="folder-tree">
+    Each stream saves to its own `stream_<id>/` directory.
+  </Card>
+</CardGroup>
+
+### Thread-Safe Detection
+
+The `PersonDetector` uses a lock to ensure only one thread runs inference at a time.
+
+From `person_detector.py:228-244`:
+
+```python
+def detect_persons(self, frame: cv2.typing.MatLike) -> Tuple[bool, int, List[Tuple[int, int, int, int, float]]]:
+    """
+    Detect persons in frame using available method.
+    Thread-safe: acquires an internal lock so that only one thread
+    runs inference at a time (OpenCV DNN / HOG are not thread-safe).
+    Returns: (has_person: bool, person_count: int, boxes: list)
+    """
+    with self._inference_lock:
+        if self.net is not None:
+            boxes = self.detect_persons_yolo(frame)
+        else:
+            boxes = self.detect_persons_hog(frame)
+    
+    has_person = len(boxes) > 0
+    person_count = len(boxes)
+    
+    return has_person, person_count, boxes
+```
+
+**Why thread-safety matters:**
+- OpenCV's DNN module is not thread-safe
+- Multiple threads calling `net.forward()` simultaneously causes crashes
+- Lock ensures sequential inference
+- Other operations (frame reading, saving) remain parallel
+
+<Warning>
+**Performance impact:** With many streams, inference becomes a bottleneck. GPU acceleration helps significantly.
+</Warning>
+
+### Thread Monitoring
+
+The main thread waits for all worker threads:
+
+From `multi_stream_manager.py:82-94`:
+
+```python
+try:
+    if display:
+        print("All streams shown in a single grid window. Press 'q' or Ctrl+C to stop...")
+    else:
+        print("All streams started. Press Ctrl+C to stop all streams...")
+    
+    for t in threads:
+        while t.is_alive():
+            t.join(timeout=0.5)
+            if display and display_manager is not None and not display_manager.is_running:
+                break
+        if display and display_manager is not None and not display_manager.is_running:
+            break
+```
+
+**Termination triggers:**
+1. User presses 'q' (closes display window)
+2. User presses Ctrl+C
+3. All streams disconnect and exhaust retries
+
+## Output Organization
+
+Multi-stream mode creates a sub-directory for each stream.
+
+### Directory Structure
+
+```text
+output/
+├── stream_1/
+│   ├── person_entry_1_20260309_143022_1741528222.jpg
+│   ├── person_entry_2_20260309_144510_1741529110.jpg
+│   └── person_clip_1_20260309_143022_1741528222.mp4
+├── stream_2/
+│   ├── person_entry_1_20260309_143155_1741528315.jpg
+│   └── person_entry_2_20260309_145230_1741529550.jpg
+├── stream_3/
+│   └── person_clip_1_20260309_143500_1741528500.mp4
+└── stream_4/
+    ├── person_entry_1_20260309_143022_1741528222.jpg
+    └── person_entry_2_20260309_143420_1741528460.jpg
+```
+
+### Stream ID Assignment
+
+Stream IDs are assigned based on input method:
+
+<Tabs>
+  <Tab title="--rtsp-list">
+    **Auto-numbered starting from 1:**
+    
+    ```bash
+    python main.py --rtsp-list \
+      "rtsp://cam1.local" \    # stream_1
+      "rtsp://cam2.local" \    # stream_2
+      "rtsp://cam3.local" \    # stream_3
+      --save image
+    ```
+    
+    From `multi_stream_manager.py:56-59`:
+    ```python
+    if isinstance(rtsp_urls, dict):
+        stream_list = list(rtsp_urls.items())
+    else:
+        stream_list = list(enumerate(rtsp_urls, 1))  # Start from 1
+    ```
+  </Tab>
+  
+  <Tab title="--rtsp-file">
+    **Auto-numbered by line order:**
+    
+    ```text streams.txt
+    rtsp://cam1.local    # stream_1
+    rtsp://cam2.local    # stream_2
+    # rtsp://cam3.local  # (commented out, skipped)
+    rtsp://cam4.local    # stream_3
+    ```
+    
+    Stream IDs are assigned sequentially based on valid (non-comment) URLs.
+  </Tab>
+</Tabs>
+
+### Directory Creation
+
+From `stream_processor.py:55-58`:
+
+```python
+if save_mode is not None:
+    person_dir = f"{self.output_dir}/stream_{stream_id}"
+    os.makedirs(person_dir, exist_ok=True)
+    print(f"[Stream {stream_id}] Created directory: {person_dir}")
+```
+
+<Note>
+Directories are created automatically when the first person is detected in each stream.
+</Note>
+
+## Performance Considerations
+
+### CPU/GPU Bottlenecks
+
+**Inference bottleneck:**
+- Thread-safe lock means only one detection at a time
+- With 8 streams and 100ms inference time:
+  - Each stream gets detection every 800ms minimum
+  - Plus frame_skip delays
+
+**Solutions:**
+
+<Steps>
+  <Step title="Enable GPU acceleration">
+    CUDA-enabled OpenCV reduces inference from ~100ms to ~10ms.
+    
+    See [GPU Acceleration Guide](/guides/gpu-acceleration)
+  </Step>
+  
+  <Step title="Increase frame_skip">
+    Process fewer frames per stream:
+    
+    ```bash
+    python main.py --rtsp-file streams.txt --save video \
+      --frame-skip 30  # 1 fps instead of 2 fps
+    ```
+  </Step>
+  
+  <Step title="Adjust thresholds">
+    Higher thresholds = fewer detections = less saving overhead:
+    
+    ```bash
+    --confidence 0.65 --area-threshold 2000
+    ```
+  </Step>
+  
+  <Step title="Disable display for more streams">
+    Display rendering adds overhead:
+    
+    ```bash
+    python main.py --rtsp-file streams.txt --save video
+    # No --display flag
+    ```
+  </Step>
+</Steps>
+
+### Memory Usage
+
+**Per-stream overhead:**
+- Frame buffer: ~6 MB (1920×1080 RGB)
+- Video writer buffer: ~10-20 MB
+- Network buffers: ~5 MB
+- **Total per stream: ~20-30 MB**
+
+**Example:**
+- 16 streams: ~400 MB
+- Plus model weights: ~250 MB (YOLOv4)
+- **Total: ~650 MB baseline**
+
+<Tip>
+Monitor memory with:
+```bash
+watch -n 1 'ps aux | grep python'
+```
+</Tip>
+
+### Network Bandwidth
+
+**Bandwidth calculation:**
+
+| Resolution | Bitrate (typical) | Streams | Total Bandwidth |
+|------------|-------------------|---------|------------------|
+| 1920×1080 | 4 Mbps | 4 | 16 Mbps |
+| 1920×1080 | 4 Mbps | 8 | 32 Mbps |
+| 1280×720 | 2 Mbps | 8 | 16 Mbps |
+| 1280×720 | 2 Mbps | 16 | 32 Mbps |
+
+<Warning>
+Ensure your network can handle aggregate bandwidth, especially on WiFi or shared switches.
+</Warning>
+
+### Scaling Guidelines
+
+| Streams | CPU (no GPU) | GPU (CUDA) | RAM | Network | Recommendation |
+|---------|--------------|------------|-----|---------|----------------|
+| 1-4 | OK | Excellent | Low | Low | Any hardware |
+| 5-8 | Slow | Good | Medium | Medium | GPU recommended |
+| 9-16 | Very Slow | OK | High | High | GPU required |
+| 17+ | Unusable | Slow | Very High | Very High | Multiple instances |
+
+## Console Output
+
+Understanding multi-stream console output:
+
+```text
+Loading person detection model...
+CUDA available, using GPU for inference
+Model loaded: YOLOv4
+Confidence threshold: 0.5
+Person area threshold: 1000 pixels
+
+Config loaded from: config.cfg
+  model_dir   = model
+  output_dir  = output
+
+Loaded 4 RTSP streams from streams.txt
+Starting person detection on 4 stream(s)...
+Created main directory: output
+
+Started thread for stream 1: rtsp://192.168.1.100/stream
+Started thread for stream 2: rtsp://192.168.1.101/stream
+Started thread for stream 3: rtsp://192.168.1.102/stream
+Started thread for stream 4: rtsp://192.168.1.103/stream
+
+All streams shown in a single grid window. Press 'q' or Ctrl+C to stop...
+
+[Stream 1] Connecting to: rtsp://192.168.1.100/stream
+[Stream 2] Connecting to: rtsp://192.168.1.101/stream
+[Stream 3] Connecting to: rtsp://192.168.1.102/stream
+[Stream 4] Connecting to: rtsp://192.168.1.103/stream
+
+[Stream 1] Connected successfully! Processing frames...
+[Stream 1] Created directory: output/stream_1
+[Stream 2] Connected successfully! Processing frames...
+[Stream 2] Created directory: output/stream_2
+[Stream 3] Connected successfully! Processing frames...
+[Stream 3] Created directory: output/stream_3
+[Stream 4] Connected successfully! Processing frames...
+[Stream 4] Created directory: output/stream_4
+
+[2026-03-09 14:30:22] [Stream 1] Frame 15: No persons
+[2026-03-09 14:30:22] [Stream 2] Frame 15: 1 person(s) detected
+[Stream 2]   Person entered frame! Entry #1
+[Stream 2]   Detected 1 person(s) with boxes: [(450, 120, 180, 420)]
+[Stream 2]   Started recording clip: output/stream_2/person_clip_1_20260309_143022_1741528222.mp4
+
+[2026-03-09 14:30:23] [Stream 3] Frame 15: No persons
+[2026-03-09 14:30:23] [Stream 4] Frame 15: 2 person(s) detected
+[Stream 4]   Person entered frame! Entry #1
+[Stream 4]   Detected 2 person(s) with boxes: [(200, 100, 150, 380), (800, 150, 160, 400)]
+[Stream 4]   Saved snapshot: output/stream_4/person_entry_1_20260309_143023_1741528223.jpg
+
+^C
+Stopping all streams...
+
+[Stream 1] Stopping detection...
+[Stream 1] Processed 120 frames, captured 0 person clip(s)
+[Stream 2] Stopping detection...
+[Stream 2] Saved in-progress clip: output/stream_2/person_clip_1_20260309_143022_1741528222.mp4
+[Stream 2] Processed 125 frames, captured 1 person clip(s)
+[Stream 3] Stopping detection...
+[Stream 3] Processed 118 frames, captured 0 person clip(s)
+[Stream 4] Stopping detection...
+[Stream 4] Processed 122 frames, captured 1 person snapshot(s)
+```
+
+**Key indicators:**
+- `[Stream N]` prefix identifies which stream each message is from
+- Thread start messages confirm all streams launched
+- Connection messages show parallel connection attempts
+- Detection events include stream ID and bounding box coordinates
+- Final summary shows per-stream statistics
+
+## Real-World Examples
+
+### Example 1: Retail Store (4 Cameras)
+
+**Setup:**
+- Front entrance
+- Back entrance
+- Checkout area
+- Stock room
+
+```text cameras.txt
+rtsp://192.168.1.10/stream  # Front entrance
+rtsp://192.168.1.11/stream  # Back entrance
+rtsp://192.168.1.12/stream  # Checkout
+rtsp://192.168.1.13/stream  # Stock room
+```
+
+```bash
+python main.py --rtsp-file cameras.txt \
+  --save image \
+  --confidence 0.6 \
+  --area-threshold 2000 \
+  --display
+```
+
+**Result:**
+- Grid display shows all 4 cameras
+- Snapshot saved when person enters each area
+- Higher thresholds reduce false positives
+
+---
+
+### Example 2: Warehouse (12 Cameras)
+
+**Setup:**
+- Loading docks (4)
+- Main aisles (6)
+- Offices (2)
+
+```bash
+python main.py --rtsp-file warehouse_cams.txt \
+  --save video \
+  --frame-skip 30 \
+  --confidence 0.55
+# No --display for performance
+```
+
+**Optimization:**
+- No display (12 streams = too many for useful grid)
+- Higher frame_skip (30 = 1 fps) for performance
+- Video mode captures full activity
+- Run on server with GPU
+
+---
+
+### Example 3: Office Building (8 Cameras)
+
+**Setup:**
+- Lobby
+- Elevator banks (3)
+- Conference rooms (2)
+- Server room
+- Parking garage
+
+```bash
+python main.py --rtsp-file office.txt \
+  --save video \
+  --confidence 0.5 \
+  --frame-skip 15 \
+  --display
+```
+
+**Configuration:**
+- Balanced settings
+- Video clips for security review
+- Grid display for monitoring
+- Standard detection frequency
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="One stream failing affects others" icon="link-slash">
+    **Issue:** One bad URL causes problems
+    
+    **Solution:**
+    Threads are independent. A failing stream won't crash others, but will keep retrying:
+    
+    ```text
+    [Stream 3] Failed to read frame (attempt 1/5), reconnecting...
+    [Stream 3] Failed to read frame (attempt 2/5), reconnecting...
+    [Stream 3] Max reconnect attempts reached. Giving up.
+    ```
+    
+    Comment out the bad URL in your file:
+    ```text
+    # rtsp://broken-camera.local/stream
+    ```
+  </Accordion>
+  
+  <Accordion title="Grid display not updating" icon="grid">
+    **Issue:** Some tiles frozen or black
+    
+    **Possible causes:**
+    - Stream connection issue
+    - Thread crashed
+    - Very slow inference
+    
+    **Debug:**
+    Check console for `[Stream N]` messages. Missing messages indicate that stream has issues.
+  </Accordion>
+  
+  <Accordion title="Slow detection with many streams" icon="hourglass">
+    **Issue:** Long delays between detections
+    
+    **Cause:** Thread-safe inference lock is bottleneck
+    
+    **Solutions:**
+    
+    1. **Enable GPU acceleration:**
+       ```bash
+       # Reduces inference from ~100ms to ~10ms
+       ```
+       See [GPU Acceleration](/guides/gpu-acceleration)
+    
+    2. **Increase frame_skip:**
+       ```bash
+       --frame-skip 30  # Reduce detection frequency
+       ```
+    
+    3. **Reduce number of streams:**
+       Split into multiple instances
+  </Accordion>
+  
+  <Accordion title="Memory errors with many streams" icon="memory">
+    **Error:**
+    ```text
+    MemoryError: Unable to allocate array
+    ```
+    
+    **Solutions:**
+    
+    1. **Reduce number of streams**
+    2. **Disable display:** `--display` adds overhead
+    3. **Check available RAM:**
+       ```bash
+       free -h
+       ```
+    4. **Use lower resolution streams** (configure at camera)
+  </Accordion>
+  
+  <Accordion title="Can't press 'q' to quit" icon="keyboard">
+    **Issue:** 'q' key doesn't stop processing
+    
+    **Cause:** Display window must have focus
+    
+    **Solution:**
+    - Click on the grid window first
+    - Then press 'q'
+    - Or use Ctrl+C in terminal
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use URL Files" icon="file-lines">
+    Easier to manage, edit, and version control than command-line lists.
+  </Card>
+  
+  <Card title="Test Streams First" icon="vial">
+    Verify each RTSP URL works with VLC before adding to multi-stream setup.
+  </Card>
+  
+  <Card title="Start Small, Scale Up" icon="arrow-up-right-dots">
+    Test with 2-4 streams first, then add more as you tune performance.
+  </Card>
+  
+  <Card title="Monitor System Resources" icon="chart-line">
+    Use `htop` or similar to watch CPU, RAM, and network usage.
+  </Card>
+  
+  <Card title="Enable GPU for >4 Streams" icon="microchip">
+    GPU acceleration is essential for processing many streams efficiently.
+  </Card>
+  
+  <Card title="Label Your Streams" icon="tag">
+    Use comments in URL file to document which camera is which.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GPU Acceleration" icon="rocket" href="/guides/gpu-acceleration">
+    Essential for multi-stream performance
+  </Card>
+  
+  <Card title="Configuration Tuning" icon="sliders" href="/guides/configuration">
+    Optimize settings for your camera setup
+  </Card>
+  
+  <Card title="Single Stream Guide" icon="video" href="/guides/single-stream">
+    Understand single-stream processing
+  </Card>
+  
+  <Card title="Model Setup" icon="download" href="/guides/model-setup">
+    Configure detection models
+  </Card>
+</CardGroup>

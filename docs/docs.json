@@ -1,0 +1,70 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "RTSP Human Capture",
+  "theme": "aspen",
+  "colors": {
+    "primary": "#0A2540",
+    "light": "#1E3A5F",
+    "dark": "#051423"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/itsyourap/rtsp-human-capture"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/itsyourap/rtsp-human-capture"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/model-setup",
+              "guides/configuration",
+              "guides/single-stream",
+              "guides/multi-stream",
+              "guides/gpu-acceleration"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/image-mode",
+              "examples/video-mode",
+              "examples/test-image"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Reference",
+            "pages": [
+              "api/cli-commands",
+              "api/configuration",
+              "api/person-detector",
+              "api/stream-processor"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

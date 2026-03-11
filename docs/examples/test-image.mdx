@@ -1,0 +1,534 @@
+---
+title: 'Test Image'
+description: 'Test person detection on a local image file before processing live streams'
+icon: 'flask'
+---
+
+## Overview
+
+The `--test-image` flag allows you to test person detection on a static image file before processing live RTSP streams. This is essential for:
+
+- **Validating detection setup** – Verify your model files are loaded correctly
+- **Tuning parameters** – Find optimal confidence and area thresholds
+- **Debugging issues** – Understand why detections may be failing
+- **Testing hardware** – Confirm GPU acceleration is working
+
+<Note>
+Test image mode runs a single detection pass and exits. It does not connect to any RTSP streams.
+</Note>
+
+## Basic Usage
+
+```bash
+uv run main.py --test-image photo.jpg --save image
+```
+
+**Output:**
+```
+Config loaded from: config.cfg
+  model_dir   = model
+  output_dir  = output
+Loading person detection model...
+Model loaded: YOLOv4
+Confidence threshold: 0.5
+Person area threshold: 1000 pixels
+Testing with image: photo.jpg
+Persons detected: 2
+Bounding boxes: [(145, 89, 234, 456, 0.87), (456, 102, 189, 423, 0.72)]
+Annotated result saved to: test_result_1741528222.jpg
+```
+
+## Step-by-Step Guide
+
+<Steps>
+  <Step title="Prepare a test image">
+    Use any JPEG or PNG image containing people. For best results:
+    
+    - **Resolution**: Similar to your RTSP stream resolution
+    - **Lighting**: Similar conditions to your deployment environment
+    - **Distance**: People at similar distances as your camera setup
+    
+    Example test images:
+    ```bash
+    # Download a sample image
+    wget https://example.com/sample-crowd.jpg -O test.jpg
+    
+    # Or use a frame from your stream
+    ffmpeg -i rtsp://camera.local/stream -frames:v 1 test.jpg
+    ```
+  </Step>
+
+  <Step title="Run detection with default settings">
+    Test with default configuration:
+    
+    ```bash
+    uv run main.py --test-image test.jpg --save image
+    ```
+    
+    This uses default thresholds from `config.cfg`:
+    - `confidence_threshold = 0.5`
+    - `person_area_threshold = 1000`
+  </Step>
+
+  <Step title="Review the annotated output">
+    Open the generated `test_result_*.jpg` file:
+    
+    - **Green bounding boxes** around detected persons
+    - **Confidence scores** displayed above each box (e.g., "Person 1: 0.87")
+    - **Box dimensions** correspond to bounding box size in pixels
+    
+    Check the console output:
+    ```
+    Persons detected: 2
+    Bounding boxes: [(145, 89, 234, 456, 0.87), (456, 102, 189, 423, 0.72)]
+    ```
+    
+    Format: `(x, y, width, height, confidence)`
+  </Step>
+
+  <Step title="Adjust thresholds if needed">
+    If results aren't as expected, tune parameters:
+    
+    ```bash
+    # Lower confidence to detect more persons
+    uv run main.py --test-image test.jpg --save image --confidence 0.3
+    
+    # Higher confidence for fewer false positives
+    uv run main.py --test-image test.jpg --save image --confidence 0.7
+    
+    # Filter small detections
+    uv run main.py --test-image test.jpg --save image --area-threshold 5000
+    ```
+  </Step>
+
+  <Step title="Test with your production settings">
+    Once you find optimal parameters, test them:
+    
+    ```bash
+    uv run main.py --test-image test.jpg --save image \
+      --confidence 0.6 \
+      --area-threshold 2500 \
+      --config production.cfg
+    ```
+    
+    If results look good, use the same settings for live streams.
+  </Step>
+</Steps>
+
+## Understanding the Output
+
+### Console Output Breakdown
+
+```
+Persons detected: 2
+Bounding boxes: [(145, 89, 234, 456, 0.87), (456, 102, 189, 423, 0.72)]
+Annotated result saved to: test_result_1741528222.jpg
+```
+
+**Bounding box format:** `(x, y, width, height, confidence)`
+
+| Field | Description | Example |
+|-------|-------------|----------|
+| `x` | Left edge position (pixels) | 145 |
+| `y` | Top edge position (pixels) | 89 |
+| `width` | Box width (pixels) | 234 |
+| `height` | Box height (pixels) | 456 |
+| `confidence` | Detection confidence (0.0-1.0) | 0.87 (87%) |
+
+**Box area:** `width × height = 234 × 456 = 106,704 pixels`
+
+### Annotated Image
+
+The output image `test_result_*.jpg` shows:
+
+- **Green rectangles** – Bounding boxes around detected persons
+- **Labels** – "Person 1: 0.87", "Person 2: 0.72", etc.
+- **Original image** – Background preserved, detections overlaid
+
+<Note>
+The annotated image is saved with a Unix timestamp in the filename (e.g., `test_result_1741528222.jpg`) to prevent overwriting previous test runs.
+</Note>
+
+## Tuning Detection Parameters
+
+### Confidence Threshold Examples
+
+<Tabs>
+  <Tab title="Low (0.3) - High Recall">
+    ```bash
+    uv run main.py --test-image test.jpg --save image --confidence 0.3
+    ```
+    
+    **Result:**
+    ```
+    Persons detected: 5
+    Bounding boxes: [(145, 89, 234, 456, 0.87), (456, 102, 189, 423, 0.72), 
+                     (234, 156, 123, 289, 0.45), (678, 234, 98, 234, 0.38), 
+                     (890, 123, 156, 345, 0.32)]
+    ```
+    
+    **Interpretation:** More detections, including lower-confidence ones. May include false positives (non-person objects).
+  </Tab>
+
+  <Tab title="Default (0.5) - Balanced">
+    ```bash
+    uv run main.py --test-image test.jpg --save image
+    ```
+    
+    **Result:**
+    ```
+    Persons detected: 3
+    Bounding boxes: [(145, 89, 234, 456, 0.87), (456, 102, 189, 423, 0.72), 
+                     (234, 156, 123, 289, 0.54)]
+    ```
+    
+    **Interpretation:** Balanced accuracy. Good starting point for most use cases.
+  </Tab>
+
+  <Tab title="High (0.7) - High Precision">
+    ```bash
+    uv run main.py --test-image test.jpg --save image --confidence 0.7
+    ```
+    
+    **Result:**
+    ```
+    Persons detected: 2
+    Bounding boxes: [(145, 89, 234, 456, 0.87), (456, 102, 189, 423, 0.72)]
+    ```
+    
+    **Interpretation:** Only high-confidence detections. Fewer false positives, but may miss some persons.
+  </Tab>
+</Tabs>
+
+### Area Threshold Examples
+
+<Tabs>
+  <Tab title="Small (500) - Detect Distant Persons">
+    ```bash
+    uv run main.py --test-image test.jpg --save image --area-threshold 500
+    ```
+    
+    Captures small bounding boxes (distant persons, children, partial views).
+  </Tab>
+
+  <Tab title="Medium (2500) - Nearby Persons">
+    ```bash
+    uv run main.py --test-image test.jpg --save image --area-threshold 2500
+    ```
+    
+    Filters out small detections. Good for close-range cameras.
+  </Tab>
+
+  <Tab title="Large (10000) - Close-Up Only">
+    ```bash
+    uv run main.py --test-image test.jpg --save image --area-threshold 10000
+    ```
+    
+    Only captures large, close-up persons. Ignores background and distant people.
+  </Tab>
+</Tabs>
+
+## Troubleshooting Detection Issues
+
+<AccordionGroup>
+  <Accordion title="No persons detected (0 detections)">
+    **Possible causes:**
+    
+    1. **Thresholds too high** – Try lowering them:
+       ```bash
+       uv run main.py --test-image test.jpg --save image \
+         --confidence 0.2 \
+         --area-threshold 100
+       ```
+    
+    2. **Model files missing** – Check for HOG fallback warning:
+       ```
+       Warning: YOLO weights not found. Using OpenCV's built-in HOG person detector as fallback.
+       ```
+       HOG is less accurate than YOLO. Download proper model files.
+    
+    3. **Image issues** – Verify image loaded correctly:
+       ```bash
+       file test.jpg  # Should show: JPEG image data
+       ```
+    
+    4. **Poor image quality** – Try with a clearer image or better lighting.
+  </Accordion>
+
+  <Accordion title="Too many false positives">
+    **Solution:** Increase thresholds:
+    
+    ```bash
+    uv run main.py --test-image test.jpg --save image \
+      --confidence 0.7 \
+      --area-threshold 5000
+    ```
+    
+    Also check the annotated image – false positives may be objects that resemble humans (mannequins, posters, etc.).
+  </Accordion>
+
+  <Accordion title="Missing obvious persons">
+    **Possible causes:**
+    
+    1. **Confidence too low** – Person detected but below threshold
+    2. **Area too small** – Person detected but filtered by area threshold
+    3. **Model limitations** – YOLO/HOG struggle with certain poses or occlusions
+    
+    **Solution:** Lower both thresholds:
+    ```bash
+    uv run main.py --test-image test.jpg --save image \
+      --confidence 0.3 \
+      --area-threshold 500
+    ```
+  </Accordion>
+
+  <Accordion title="Bounding boxes in wrong locations">
+    This shouldn't happen with test images. If you see incorrect boxes:
+    
+    1. **Check image format** – Use standard JPEG/PNG
+    2. **Verify model files** – Re-download YOLO weights
+    3. **Check OpenCV version** – Ensure opencv-contrib-python is installed
+    
+    ```bash
+    python -c "import cv2; print(cv2.__version__)"
+    ```
+  </Accordion>
+
+  <Accordion title="Error: Image file not found">
+    **Output:**
+    ```
+    Error: Image file test.jpg not found
+    ```
+    
+    **Solution:** Provide the full or correct relative path:
+    ```bash
+    uv run main.py --test-image /full/path/to/test.jpg --save image
+    uv run main.py --test-image ./images/test.jpg --save image
+    ```
+  </Accordion>
+
+  <Accordion title="Error: Could not load image">
+    **Output:**
+    ```
+    Error: Could not load image test.jpg
+    ```
+    
+    **Possible causes:**
+    - Corrupted image file
+    - Unsupported format
+    - File permissions
+    
+    **Solution:**
+    ```bash
+    # Check file integrity
+    file test.jpg
+    
+    # Convert to standard JPEG
+    convert test.png test.jpg
+    
+    # Fix permissions
+    chmod 644 test.jpg
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Comparing Detection Methods
+
+### YOLOv4 vs YOLOv3 vs HOG
+
+<Tabs>
+  <Tab title="YOLOv4 (Recommended)">
+    **Accuracy:** ★★★★★  
+    **Speed:** ★★★★☆  
+    **GPU Support:** Yes
+    
+    ```bash
+    # Ensure model files exist:
+    ls model/yolov4.weights model/yolov4.cfg model/coco.names
+    ```
+    
+    **Expected output:**
+    ```
+    Model loaded: YOLOv4
+    CUDA available, using GPU for inference
+    ```
+    
+    Best for production deployments.
+  </Tab>
+
+  <Tab title="YOLOv3 (Fallback)">
+    **Accuracy:** ★★★★☆  
+    **Speed:** ★★★★☆  
+    **GPU Support:** Yes
+    
+    Used automatically if YOLOv4 files aren't found:
+    
+    ```bash
+    # Download YOLOv3 files:
+    wget https://pjreddie.com/media/files/yolov3.weights -O model/yolov3.weights
+    wget https://github.com/pjreddie/darknet/raw/master/cfg/yolov3.cfg -O model/yolov3.cfg
+    ```
+    
+    **Expected output:**
+    ```
+    Model loaded: YOLOv3
+    CUDA available, using GPU for inference
+    ```
+  </Tab>
+
+  <Tab title="HOG (Fallback)">
+    **Accuracy:** ★★☆☆☆  
+    **Speed:** ★★★☆☆  
+    **GPU Support:** No (CPU only)
+    
+    Used when no YOLO models are found:
+    
+    ```
+    Warning: YOLO weights not found. Using OpenCV's built-in HOG person detector as fallback.
+    Model loaded: HOG
+    ```
+    
+    **Limitations:**
+    - Lower accuracy, especially with occlusions
+    - Struggles with non-upright poses
+    - More false positives
+    
+    Only use HOG for testing. Download YOLO models for production.
+  </Tab>
+</Tabs>
+
+## Using Test Results for Production
+
+### Finding Optimal Settings
+
+<Steps>
+  <Step title="Test with multiple images">
+    Capture diverse scenarios from your deployment:
+    
+    ```bash
+    # Different times of day
+    uv run main.py --test-image morning.jpg --save image
+    uv run main.py --test-image afternoon.jpg --save image
+    uv run main.py --test-image evening.jpg --save image
+    
+    # Different distances
+    uv run main.py --test-image close-up.jpg --save image
+    uv run main.py --test-image medium-range.jpg --save image
+    uv run main.py --test-image far-away.jpg --save image
+    ```
+  </Step>
+
+  <Step title="Tune for your use case">
+    **High-security (minimize false negatives):**
+    ```bash
+    uv run main.py --test-image test.jpg --save image \
+      --confidence 0.4 \
+      --area-threshold 800
+    ```
+    
+    **High-precision (minimize false positives):**
+    ```bash
+    uv run main.py --test-image test.jpg --save image \
+      --confidence 0.7 \
+      --area-threshold 3000
+    ```
+  </Step>
+
+  <Step title="Document your findings">
+    Record optimal settings for your environment:
+    
+    ```ini
+    # production.cfg
+    [paths]
+    model_dir = model
+    output_dir = /data/surveillance
+    
+    [detection]
+    confidence_threshold = 0.6  # Tuned from test results
+    person_area_threshold = 2500  # Filters distant persons
+    frame_skip = 15
+    ```
+  </Step>
+
+  <Step title="Apply to live streams">
+    Use tested settings with RTSP streams:
+    
+    ```bash
+    uv run main.py --config production.cfg \
+      --rtsp "rtsp://camera.local/stream" \
+      --save image
+    ```
+  </Step>
+</Steps>
+
+## Advanced Testing
+
+### Batch Testing Multiple Images
+
+```bash
+#!/bin/bash
+# test-batch.sh
+
+for img in test_images/*.jpg; do
+  echo "Testing: $img"
+  uv run main.py --test-image "$img" --save image \
+    --confidence 0.5 \
+    --area-threshold 2000
+  echo "---"
+done
+```
+
+Run:
+```bash
+chmod +x test-batch.sh
+./test-batch.sh
+```
+
+### Comparing Threshold Ranges
+
+```bash
+#!/bin/bash
+# compare-thresholds.sh
+
+for conf in 0.3 0.4 0.5 0.6 0.7; do
+  echo "Testing confidence: $conf"
+  uv run main.py --test-image test.jpg --save image --confidence $conf
+  mv test_result_*.jpg "result_conf_${conf}.jpg"
+done
+```
+
+Review all `result_conf_*.jpg` files to compare detection results.
+
+### Testing GPU Acceleration
+
+Verify CUDA is being used:
+
+```bash
+uv run main.py --test-image test.jpg --save image 2>&1 | grep CUDA
+```
+
+**Expected output:**
+```
+CUDA available, using GPU for inference
+```
+
+If you see:
+```
+CUDA not available, using CPU for inference
+```
+
+Install CUDA-enabled OpenCV:
+```bash
+uv pip install opencv-contrib-python
+```
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Image Mode" icon="camera" href="/examples/image-mode">
+    Apply tested settings to capture snapshots from live streams
+  </Card>
+  <Card title="Video Mode" icon="video" href="/examples/video-mode">
+    Record MP4 clips with your tuned detection parameters
+  </Card>
+</CardGroup>

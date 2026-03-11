@@ -1,0 +1,794 @@
+---
+title: 'Single Stream Processing'
+description: 'Process a single RTSP stream with person detection, display options, and save modes'
+icon: 'video'
+---
+
+## Overview
+
+Single stream mode processes one RTSP camera feed with real-time person detection. When a person enters the frame, the system can:
+
+- Save an annotated JPEG snapshot
+- Record an MP4 video clip of their presence
+- Display a live annotated window
+- Print detection events to console
+
+<Note>
+Single stream mode uses a dedicated display window (1280×720 resolution). For multiple cameras, see [Multi-Stream Processing](/guides/multi-stream).
+</Note>
+
+## Basic Usage
+
+### Minimal Example
+
+```bash
+python main.py --rtsp "rtsp://camera.local/stream" --save image
+```
+
+This command:
+- Connects to the RTSP stream
+- Runs person detection on every 15th frame (default)
+- Saves JPEG snapshots when persons are detected
+- Shows a live display window
+
+### With uv (Recommended)
+
+```bash
+uv run main.py --rtsp "rtsp://camera.local/stream" --save image
+```
+
+## Command Structure
+
+The basic command structure for single stream processing:
+
+```bash
+python main.py --rtsp <URL> --save <image|video> [OPTIONS]
+```
+
+<ParamField path="--rtsp" type="string" required>
+  RTSP stream URL to process
+</ParamField>
+
+<ParamField path="--save" type="choice" required>
+  Save mode: `image` for snapshots or `video` for clips
+</ParamField>
+
+## Display Options
+
+Control whether to show a live display window during processing.
+
+### With Display (Default)
+
+By default, single stream mode shows a live annotated window:
+
+```bash
+python main.py --rtsp "rtsp://camera.local/stream" --save image
+```
+
+**Window features:**
+- Resized to 1280×720 for consistent viewing
+- Green bounding boxes around detected persons
+- Confidence scores displayed above boxes
+- Person count and entry counter in top-left
+- Press 'q' to quit
+
+**Implementation** (`stream_processor.py:363-396`):
+
+```python
+if display:
+    display_frame = cv2.resize(frame.copy(), (1280, 720))
+    
+    # Scale bounding boxes to display resolution
+    original_height, original_width = frame.shape[:2]
+    scale_x = 1280 / original_width
+    scale_y = 720 / original_height
+    
+    for x, y, w, h, confidence in boxes:
+        sx, sy = int(x * scale_x), int(y * scale_y)
+        sw, sh = int(w * scale_x), int(h * scale_y)
+        cv2.rectangle(display_frame, (sx, sy),
+                      (sx + sw, sy + sh), (0, 255, 0), 2)
+        cv2.putText(
+            display_frame,
+            f"Person {confidence:.2f}",
+            (sx, sy - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            2,
+        )
+    
+    cv2.putText(
+        display_frame,
+        f"Persons: {person_count} | Entries: {person_entry_count}",
+        (10, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1,
+        (0, 255, 0),
+        2,
+    )
+    cv2.imshow("RTSP Person Detection", display_frame)
+    if cv2.waitKey(1) & 0xFF == ord("q"):
+        break
+```
+
+### Without Display (Headless)
+
+Disable the display window for headless servers or background processing:
+
+```bash
+python main.py --rtsp "rtsp://camera.local/stream" --save image --no-display
+```
+
+<ParamField path="--no-display" type="flag">
+  Disable the live display window (single stream only)
+</ParamField>
+
+**Use cases:**
+- Running on servers without GUI
+- Background processing
+- Reduced resource usage
+- Remote/SSH sessions
+
+**From main.py:142:**
+
+```python
+processor.process_rtsp_stream(
+    rtsp_url=args.rtsp,
+    frame_skip=cfg.frame_skip,
+    display=not args.no_display,  # display=True unless --no-display
+    save_mode=args.save,
+)
+```
+
+<Tabs>
+  <Tab title="With Display">
+    ```bash
+    # Shows live window
+    python main.py --rtsp "rtsp://192.168.1.100/stream" --save video
+    ```
+    
+    **Output:**
+    ```text
+    Connected successfully! Processing frames...
+    Press 'q' to quit
+    [2026-03-09 14:30:22] Frame 15: 2 person(s) detected
+      Person entered frame! Entry #1
+    ```
+    
+    + Live OpenCV window appears
+  </Tab>
+  
+  <Tab title="Without Display">
+    ```bash
+    # Headless mode
+    python main.py --rtsp "rtsp://192.168.1.100/stream" --save video --no-display
+    ```
+    
+    **Output:**
+    ```text
+    Connected successfully! Processing frames...
+    [2026-03-09 14:30:22] Frame 15: 2 person(s) detected
+      Person entered frame! Entry #1
+      Started recording clip: output/person_clip_1_20260309_143022_1741528222.mp4
+    ```
+    
+    + No window appears
+    + Lower resource usage
+  </Tab>
+</Tabs>
+
+## Save Modes
+
+### Image Mode (Snapshots)
+
+Captures a single annotated JPEG when a person first enters the frame.
+
+```bash
+python main.py --rtsp "rtsp://camera.local/stream" --save image
+```
+
+**Behavior:**
+- One snapshot per person entry event
+- Annotated with bounding boxes and confidence scores
+- Saved immediately when person detected
+- Filename includes timestamp and entry counter
+
+**Filename format:**
+```text
+person_entry_{entry_number}_{YYYYMMDD_HHMMSS}_{unix_timestamp}.jpg
+```
+
+**Example output:**
+```text
+output/
+├── person_entry_1_20260309_143022_1741528222.jpg
+├── person_entry_2_20260309_144510_1741529110.jpg
+└── person_entry_3_20260309_145230_1741529550.jpg
+```
+
+**Implementation** (`stream_processor.py:321-327`):
+
+```python
+if save_mode == "image":
+    filename = (
+        f"{self.output_dir}/person_entry_{person_entry_count}"
+        f"_{timestamp_str}_{int(time.time())}.jpg"
+    )
+    self._save_annotated_snapshot(frame, boxes, filename)
+    print(f"  Saved snapshot: {filename}")
+```
+
+**Annotation function** (`stream_processor.py:416-434`):
+
+```python
+@staticmethod
+def _save_annotated_snapshot(
+    frame: cv2.typing.MatLike,
+    boxes: List[Tuple[int, int, int, int, float]],
+    filename: str,
+) -> None:
+    annotated = frame.copy()
+    for x, y, w, h, confidence in boxes:
+        cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.putText(
+            annotated,
+            f"Person {confidence:.2f}",
+            (x, y - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            2,
+        )
+    cv2.imwrite(filename, annotated)
+```
+
+<Tip>
+**When to use image mode:**
+- Counting people entering an area
+- Logging distinct events
+- Minimal storage requirements
+- Quick review of detections
+</Tip>
+
+---
+
+### Video Mode (Clips)
+
+Records an MP4 clip for the entire duration a person is present in the frame.
+
+```bash
+python main.py --rtsp "rtsp://camera.local/stream" --save video
+```
+
+**Behavior:**
+- Recording starts when person enters frame
+- Continues while person is present
+- Stops after 3 consecutive frames without detection
+- All frames written at source stream FPS
+
+**Filename format:**
+```text
+person_clip_{entry_number}_{YYYYMMDD_HHMMSS}_{unix_timestamp}.mp4
+```
+
+**Example output:**
+```text
+output/
+├── person_clip_1_20260309_143022_1741528222.mp4  # 45 seconds
+├── person_clip_2_20260309_144510_1741529110.mp4  # 12 seconds
+└── person_clip_3_20260309_145230_1741529550.mp4  # 67 seconds
+```
+
+**Implementation** (`stream_processor.py:329-339`):
+
+```python
+elif save_mode == "video":
+    clip_filename = (
+        f"{self.output_dir}/person_clip_{person_entry_count}"
+        f"_{timestamp_str}_{int(time.time())}.mp4"
+    )
+    h_frame, w_frame = frame.shape[:2]
+    fourcc = cv2.VideoWriter.fourcc(*"mp4v")
+    video_writer = cv2.VideoWriter(
+        clip_filename, fourcc, stream_fps, (w_frame, h_frame)
+    )
+    print(f"  Started recording clip: {clip_filename}")
+```
+
+**Exit detection logic** (`stream_processor.py:344-355`):
+
+```python
+elif not has_person and person_present:
+    no_person_streak += 1
+    print(
+        f"  No person detected ({no_person_streak}/{NO_PERSON_EXIT_THRESHOLD})"
+    )
+    if no_person_streak >= NO_PERSON_EXIT_THRESHOLD:
+        person_present = False
+        no_person_streak = 0
+        if video_writer is not None:
+            video_writer.release()
+            video_writer = None
+            print(f"  Person(s) exited. Saved clip: {clip_filename}")
+```
+
+<Note>
+**Exit threshold:** 3 consecutive frames without detection
+
+With `frame_skip=15` on a 30fps stream:
+- Detection runs every 0.5 seconds
+- 3 misses = ~1.5 seconds of no detection
+- Prevents premature clip termination from brief occlusions
+</Note>
+
+<Tip>
+**When to use video mode:**
+- Reviewing behavior and movement
+- Security incident investigation
+- Understanding context around events
+- Capturing full interactions
+</Tip>
+
+---
+
+### Save Mode Comparison
+
+<CardGroup cols={2}>
+  <Card title="Image Mode" icon="image">
+    **Pros:**
+    - Minimal storage
+    - Fast to review
+    - One file per event
+    - Good for counting
+    
+    **Cons:**
+    - No temporal context
+    - Miss behavior details
+    - Single frame only
+  </Card>
+  
+  <Card title="Video Mode" icon="film">
+    **Pros:**
+    - Full context
+    - Review behavior
+    - Continuous recording
+    - Better for security
+    
+    **Cons:**
+    - Large file sizes
+    - More storage needed
+    - Slower to review
+  </Card>
+</CardGroup>
+
+## Detection Flow
+
+Understanding how detection works in single stream mode:
+
+<Steps>
+  <Step title="Connect to RTSP stream">
+    ```python
+    cap = cv2.VideoCapture(rtsp_url)
+    if not cap.isOpened():
+        print("Error: Could not connect to RTSP stream")
+        return
+    ```
+    
+    From `stream_processor.py:251-254`
+  </Step>
+  
+  <Step title="Read frames continuously">
+    ```python
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            # Attempt reconnection
+            consecutive_failures += 1
+            # ...
+    ```
+    
+    From `stream_processor.py:280-296`
+  </Step>
+  
+  <Step title="Run detection every Nth frame">
+    ```python
+    if frame_count % frame_skip == 0 and (current_time - last_detection_time) >= 0.5:
+        last_detection_time = current_time
+        has_person, person_count, boxes = self.detector.detect_persons(frame)
+    ```
+    
+    From `stream_processor.py:303-305`
+    
+    - Default: every 15th frame
+    - Throttled to max 2 fps
+  </Step>
+  
+  <Step title="Track person presence state">
+    ```python
+    if has_person and not person_present:
+        # Person ENTERED frame
+        person_present = True
+        person_entry_count += 1
+        # Save snapshot or start clip
+    
+    elif not has_person and person_present:
+        # Person MAY HAVE EXITED
+        no_person_streak += 1
+        if no_person_streak >= 3:
+            person_present = False
+            # Stop clip recording
+    ```
+    
+    From `stream_processor.py:311-355`
+  </Step>
+  
+  <Step title="Save or display frames">
+    - Write frames to video clip if recording
+    - Update display window if enabled
+    - Print status messages
+  </Step>
+</Steps>
+
+## Console Output
+
+Understanding the console output during processing:
+
+```text
+Loading person detection model...
+CUDA available, using GPU for inference
+Model loaded: YOLOv4
+Confidence threshold: 0.5
+Person area threshold: 1000 pixels
+
+Config loaded from: config.cfg
+  model_dir   = model
+  output_dir  = output
+
+Connecting to RTSP stream: rtsp://192.168.1.100/stream
+Created directory: output
+Connected successfully! Processing frames...
+Press 'q' to quit
+
+[2026-03-09 14:30:22] Frame 15: No persons
+[2026-03-09 14:30:23] Frame 30: No persons
+[2026-03-09 14:30:24] Frame 45: 1 person(s) detected
+  Person entered frame! Entry #1
+  Saved snapshot: output/person_entry_1_20260309_143024_1741528224.jpg
+
+[2026-03-09 14:30:25] Frame 60: 1 person(s) detected
+[2026-03-09 14:30:26] Frame 75: 1 person(s) detected
+[2026-03-09 14:30:27] Frame 90: No persons
+  No person detected (1/3)
+[2026-03-09 14:30:28] Frame 105: No persons
+  No person detected (2/3)
+[2026-03-09 14:30:29] Frame 120: No persons
+  No person detected (3/3)
+  Person(s) exited frame. Waiting for next entry...
+
+^C
+Stopping detection...
+Processed 150 frames, captured 1 person snapshot(s)
+```
+
+**Key indicators:**
+
+<AccordionGroup>
+  <Accordion title="Model loading" icon="download">
+    ```text
+    Model loaded: YOLOv4
+    CUDA available, using GPU for inference
+    ```
+    Confirms which detection model is active and compute backend.
+  </Accordion>
+  
+  <Accordion title="Connection status" icon="link">
+    ```text
+    Connected successfully! Processing frames...
+    ```
+    Stream connection established and frame reading started.
+  </Accordion>
+  
+  <Accordion title="Detection events" icon="bullseye">
+    ```text
+    [2026-03-09 14:30:24] Frame 45: 1 person(s) detected
+      Person entered frame! Entry #1
+    ```
+    Person detected with timestamp and entry counter.
+  </Accordion>
+  
+  <Accordion title="Exit tracking" icon="door-open">
+    ```text
+      No person detected (3/3)
+      Person(s) exited frame. Waiting for next entry...
+    ```
+    Exit confirmation after 3 consecutive frames without detection.
+  </Accordion>
+</AccordionGroup>
+
+## Configuration Overrides
+
+Override config.cfg values for single stream processing:
+
+<CodeGroup>
+```bash Higher Confidence
+# Require 70% confidence for detection
+python main.py --rtsp "rtsp://camera.local/stream" --save image \
+  --confidence 0.7
+```
+
+```bash Larger Minimum Size
+# Only detect persons >2000 pixels
+python main.py --rtsp "rtsp://camera.local/stream" --save image \
+  --area-threshold 2000
+```
+
+```bash More Frequent Detection
+# Process every 5th frame (~6 fps on 30fps stream)
+python main.py --rtsp "rtsp://camera.local/stream" --save video \
+  --frame-skip 5
+```
+
+```bash Combined Overrides
+python main.py --rtsp "rtsp://camera.local/stream" --save video \
+  --confidence 0.65 \
+  --area-threshold 1500 \
+  --frame-skip 10 \
+  --no-display
+```
+</CodeGroup>
+
+## Automatic Reconnection
+
+Single stream mode includes automatic reconnection on connection loss:
+
+```python
+if not ret:
+    consecutive_failures += 1
+    print(
+        f"Failed to read frame (attempt {consecutive_failures}/{max_reconnect_attempts}), reconnecting..."
+    )
+    cap.release()
+    time.sleep(2)
+    cap = cv2.VideoCapture(rtsp_url)
+    if not cap.isOpened():
+        if consecutive_failures >= max_reconnect_attempts:
+            print("Max reconnect attempts reached. Giving up.")
+            break
+        continue
+    print("Reconnected successfully.")
+    continue
+```
+
+From `stream_processor.py:282-296`
+
+**Reconnection behavior:**
+- Max 5 retry attempts
+- 2 second delay between attempts
+- Resets counter on successful read
+- Exits after exhausting retries
+
+<Warning>
+Video clips in progress when connection is lost will be saved automatically but may be incomplete.
+</Warning>
+
+## Real-World Examples
+
+### Example 1: Store Entrance Monitoring
+
+**Goal:** Count customers entering a store
+
+```bash
+python main.py \
+  --rtsp "rtsp://store-camera.local/entrance" \
+  --save image \
+  --confidence 0.6 \
+  --area-threshold 2000 \
+  --no-display
+```
+
+**Configuration:**
+- Image mode: one snapshot per customer
+- Higher confidence: reduce false positives
+- Larger area threshold: only detect close persons (actually entering)
+- No display: runs in background
+
+---
+
+### Example 2: Security Incident Recording
+
+**Goal:** Record full video of any activity in restricted area
+
+```bash
+python main.py \
+  --rtsp "rtsp://security-cam.local/restricted" \
+  --save video \
+  --confidence 0.4 \
+  --frame-skip 10
+```
+
+**Configuration:**
+- Video mode: capture full behavior
+- Lower confidence: don't miss any detections
+- More frequent checking: faster detection response
+- With display: monitor in real-time
+
+---
+
+### Example 3: Parking Lot Wide-Angle
+
+**Goal:** Detect people in large parking area
+
+```bash
+python main.py \
+  --rtsp "rtsp://parking-cam.local/wide" \
+  --save image \
+  --confidence 0.45 \
+  --area-threshold 500 \
+  --frame-skip 20
+```
+
+**Configuration:**
+- Image mode: event logging
+- Lower confidence: better for distant detection
+- Low area threshold: detect small/distant persons
+- Less frequent: acceptable for slow-moving subjects
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Cannot connect to stream" icon="plug">
+    **Error:**
+    ```text
+    Error: Could not connect to RTSP stream
+    ```
+    
+    **Possible causes:**
+    - Incorrect RTSP URL
+    - Network connectivity issues
+    - Camera authentication required
+    - Firewall blocking connection
+    
+    **Solutions:**
+    - Verify URL with VLC or ffplay:
+      ```bash
+      vlc rtsp://camera.local/stream
+      ```
+    - Check network connectivity:
+      ```bash
+      ping camera.local
+      ```
+    - Add credentials to URL:
+      ```bash
+      rtsp://username:password@camera.local/stream
+      ```
+  </Accordion>
+  
+  <Accordion title="Display window not showing" icon="window-maximize">
+    **Issue:** No OpenCV window appears
+    
+    **Possible causes:**
+    - `--no-display` flag set
+    - Headless environment (no X server)
+    - Display environment variable not set
+    
+    **Solutions:**
+    - Remove `--no-display` flag
+    - For SSH: enable X11 forwarding
+      ```bash
+      ssh -X user@host
+      ```
+    - Set DISPLAY variable:
+      ```bash
+      export DISPLAY=:0
+      ```
+  </Accordion>
+  
+  <Accordion title="No detections happening" icon="eye-slash">
+    **Issue:** Stream works but no persons detected
+    
+    **Debugging steps:**
+    
+    1. **Check model is loaded:**
+       ```text
+       Model loaded: YOLOv4  # Should see this, not HOG
+       ```
+    
+    2. **Lower confidence threshold:**
+       ```bash
+       python main.py --rtsp "..." --save image --confidence 0.3
+       ```
+    
+    3. **Lower area threshold:**
+       ```bash
+       python main.py --rtsp "..." --save image --area-threshold 500
+       ```
+    
+    4. **Test with image first:**
+       ```bash
+       python main.py --test-image photo.jpg --save image
+       ```
+  </Accordion>
+  
+  <Accordion title="Frequent reconnections" icon="arrows-rotate">
+    **Issue:**
+    ```text
+    Failed to read frame (attempt 1/5), reconnecting...
+    ```
+    
+    **Possible causes:**
+    - Unstable network
+    - Camera stream issues
+    - Network bandwidth limitations
+    - Router/switch problems
+    
+    **Solutions:**
+    - Check network stability
+    - Reduce stream quality at camera
+    - Use wired connection instead of WiFi
+    - Check camera logs for issues
+  </Accordion>
+  
+  <Accordion title="High CPU/GPU usage" icon="microchip">
+    **Issue:** System resources maxed out
+    
+    **Solutions:**
+    
+    1. **Increase frame_skip:**
+       ```bash
+       --frame-skip 30  # Process 1 fps on 30fps stream
+       ```
+    
+    2. **Disable display:**
+       ```bash
+       --no-display
+       ```
+    
+    3. **Use HOG instead of YOLO:**
+       - Move YOLO weights out of model directory
+       - HOG is faster but less accurate
+    
+    4. **Enable GPU if available:**
+       - See [GPU Acceleration Guide](/guides/gpu-acceleration)
+  </Accordion>
+</AccordionGroup>
+
+## Performance Tips
+
+<CardGroup cols={2}>
+  <Card title="Optimize frame_skip" icon="gauge-high">
+    Start with `frame_skip=30` and decrease until detection responsiveness is acceptable.
+  </Card>
+  
+  <Card title="Use GPU acceleration" icon="rocket">
+    CUDA-enabled OpenCV provides 5-10x speedup. See [GPU setup](/guides/gpu-acceleration).
+  </Card>
+  
+  <Card title="Adjust resolution" icon="compress">
+    Configure camera to stream at lower resolution (e.g., 1280×720 instead of 1920×1080).
+  </Card>
+  
+  <Card title="Tune thresholds" icon="sliders">
+    Higher confidence/area thresholds = fewer detections = less processing.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Multi-Stream Processing" icon="grid" href="/guides/multi-stream">
+    Monitor multiple cameras simultaneously
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Fine-tune detection parameters
+  </Card>
+  
+  <Card title="GPU Acceleration" icon="microchip" href="/guides/gpu-acceleration">
+    Speed up detection with CUDA
+  </Card>
+  
+  <Card title="Model Setup" icon="download" href="/guides/model-setup">
+    Configure detection models
+  </Card>
+</CardGroup>

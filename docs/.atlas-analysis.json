@@ -1,0 +1,77 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "RTSP Human Capture",
+  "projectDescription": "Detect and capture people from RTSP camera streams using YOLOv4/YOLOv3 with GPU acceleration and multi-stream threading",
+  "theme": "aspen",
+  "primaryColor": "#0A2540",
+  "lightColor": "#1E3A5F",
+  "darkColor": "#051423",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/model-setup",
+              "guides/configuration",
+              "guides/single-stream",
+              "guides/multi-stream",
+              "guides/gpu-acceleration"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/image-mode",
+              "examples/video-mode",
+              "examples/test-image"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Reference",
+            "pages": [
+              "api/cli-commands",
+              "api/configuration",
+              "api/person-detector",
+              "api/stream-processor"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "YOLOv4/YOLOv3 person detection with HOG fallback",
+    "CUDA GPU acceleration with automatic detection",
+    "Multi-stream concurrent processing with threading",
+    "Configurable snapshot (JPEG) or video (MP4) recording",
+    "Live grid display for multiple camera streams",
+    "Automatic reconnection with retry logic",
+    "CLI with comprehensive configuration options"
+  ],
+  "publicApiSurface": [
+    "main.py --rtsp <url> --save <mode>",
+    "main.py --rtsp-list <urls...> --save <mode>",
+    "main.py --rtsp-file <path> --save <mode>",
+    "main.py --test-image <path> --save <mode>",
+    "PersonDetector.detect_persons()",
+    "StreamProcessor.process_rtsp_stream()",
+    "MultiStreamManager.process_multiple_streams()",
+    "DisplayManager.update_frame()"
+  ]
+}
